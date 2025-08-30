@@ -21,7 +21,7 @@ load_dotenv()
 app = Flask(__name__)
 
 # ------------------------------
-# CORS Configuration - FIXED
+# CORS Configuration
 # ------------------------------
 FRONTEND_ORIGINS = [
     "https://predict-eplt6.netlify.app",
@@ -31,7 +31,7 @@ FRONTEND_ORIGINS = [
     "http://127.0.0.1:3001"
 ]
 
-# Simplified CORS configuration
+# CORS configuration
 CORS(
     app,
     origins=FRONTEND_ORIGINS,
@@ -39,6 +39,19 @@ CORS(
     allow_headers=["Content-Type", "Authorization", "X-Requested-With"],
     methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"]
 )
+
+# ------------------------------
+# Compression Handling Middleware
+# ------------------------------
+@app.after_request
+def after_request(response):
+    # Remove compression headers to prevent Brotli issues
+    if 'Content-Encoding' in response.headers:
+        response.headers.remove('Content-Encoding')
+    if 'Content-Length' in response.headers:
+        response.headers.remove('Content-Length')
+    response.direct_passthrough = False
+    return response
 
 # Handle preflight OPTIONS requests
 @app.before_request
@@ -56,7 +69,7 @@ def handle_preflight():
         return response
 
 # ------------------------------
-# Health Check Endpoint (ADD THIS FIRST)
+# Health Check Endpoints
 # ------------------------------
 @app.route("/ping")
 def ping():
@@ -116,14 +129,7 @@ def internal_error(error):
     return {"error": "Internal server error", "status": 500}, 500
 
 # ------------------------------
-# Teardown
-# ------------------------------
-@app.teardown_appcontext
-def teardown_db(exception):
-    close_db()
-
-# ------------------------------
-# Debug Routes (for testing)
+# Debug Routes
 # ------------------------------
 @app.route("/api/debug/routes")
 def debug_routes():
@@ -137,6 +143,13 @@ def debug_routes():
     return jsonify({"routes": routes})
 
 # ------------------------------
+# Teardown
+# ------------------------------
+@app.teardown_appcontext
+def teardown_db(exception):
+    close_db()
+
+# ------------------------------
 # Main Execution
 # ------------------------------
 if __name__ == "__main__":
@@ -147,5 +160,6 @@ if __name__ == "__main__":
     print(f" Allowed CORS origins: {FRONTEND_ORIGINS}")
     print(f" Health check: http://localhost:{port}/api/health")
     print(f" Debug routes: http://localhost:{port}/api/debug/routes")
+    print(f" Compression handling: Enabled")
     
     serve(app, host="0.0.0.0", port=port)
