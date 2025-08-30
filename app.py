@@ -1,6 +1,7 @@
 import os
 import sys
-from flask import Flask, jsonify
+from flask import Flask, request, jsonify
+from flask_cors import CORS
 from dotenv import load_dotenv
 
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
@@ -20,43 +21,24 @@ load_dotenv()
 app = Flask(__name__)
 
 # ------------------------------
-# MANUAL CORS HANDLING (No Flask-CORS)
+# CORS Configuration - FIXED SYNTAX
 # ------------------------------
 FRONTEND_ORIGINS = [
     "https://predict-eplt6.netlify.app",
     "http://localhost:3000",
-    "http://localhost:3001",
+    "http://localhost:3001", 
     "http://127.0.0.1:3000",
     "http://127.0.0.1:3001"
 ]
 
-@app.before_request
-def handle_cors():
-    """Handle CORS for all requests"""
-    origin = request.headers.get('Origin')
-    
-    if origin in FRONTEND_ORIGINS:
-        # Handle preflight requests
-        if request.method == 'OPTIONS':
-            response = jsonify()
-            response.headers.add('Access-Control-Allow-Origin', origin)
-            response.headers.add('Access-Control-Allow-Headers', 'Content-Type, Authorization')
-            response.headers.add('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS')
-            response.headers.add('Access-Control-Allow-Credentials', 'true')
-            response.headers.add('Access-Control-Max-Age', '86400')
-            return response
-
-@app.after_request
-def add_cors_headers(response):
-    """Add CORS headers to all responses"""
-    origin = request.headers.get('Origin')
-    
-    if origin in FRONTEND_ORIGINS:
-        response.headers.add('Access-Control-Allow-Origin', origin)
-        response.headers.add('Access-Control-Allow-Credentials', 'true')
-        response.headers.add('Access-Control-Expose-Headers', 'Content-Type, Authorization')
-    
-    return response
+# ✅ CORRECT: Use 'origins' (plural) not 'origin'
+CORS(
+    app,
+    origins=FRONTEND_ORIGINS,  # ← FIXED: 'origins' not 'origin'
+    supports_credentials=True,
+    allow_headers=["Content-Type", "Authorization", "X-Requested-With"],
+    methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"]
+)
 
 # ------------------------------
 # Health Check Endpoints
@@ -123,9 +105,7 @@ if __name__ == "__main__":
     from waitress import serve
     port = int(os.environ.get("PORT", 5000))
     
-    print(" Football Prediction Platform API Starting...")
-    print(f" Port: {port}")
-    print(f" Manual CORS handling for: {FRONTEND_ORIGINS}")
-    print(" Server ready!")
+    print("⚽ Server starting with fixed CORS configuration")
+    print(f"🌐 Allowed origins: {FRONTEND_ORIGINS}")
     
     serve(app, host="0.0.0.0", port=port)
