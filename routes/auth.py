@@ -1,27 +1,13 @@
-from flask import Blueprint, request, jsonify, make_response
+from flask import Blueprint, request, jsonify
 from services.user import create_user, verify_user
-from flask_cors import cross_origin
 from utils.token import generate_token
 import os
 
-# Environment-aware CORS origin
-FRONTEND_ORIGIN = os.getenv("FRONTEND_ORIGIN", "http://localhost:3000")
-
 auth_bp = Blueprint('auth', __name__)
 
-# ✅ REGISTER
-@auth_bp.route("/register", methods=["POST", "OPTIONS"])
-@cross_origin(origin=FRONTEND_ORIGIN, supports_credentials=True)
+# ✅ REGISTER - REMOVED ALL CORS DECORATORS AND MANUAL HANDLING
+@auth_bp.route("/register", methods=["POST"])
 def register():
-    if request.method == 'OPTIONS':
-        # Handle CORS preflight
-        response = make_response()
-        response.headers.add("Access-Control-Allow-Origin", FRONTEND_ORIGIN)
-        response.headers.add("Access-Control-Allow-Headers", "Content-Type")
-        response.headers.add("Access-Control-Allow-Methods", "POST, OPTIONS")
-        response.headers.add("Access-Control-Allow-Credentials", "true")
-        return response
-
     data = request.get_json()
     username = data.get('username')
     password = data.get('password')
@@ -37,18 +23,9 @@ def register():
     else:
         return jsonify({'message': 'Username already exists.'}), 400
 
-# ✅ LOGIN
-@auth_bp.route('/login', methods=['POST', 'OPTIONS'])
-@cross_origin(origin=FRONTEND_ORIGIN, supports_credentials=True)
+# ✅ LOGIN - REMOVED ALL CORS DECORATORS AND MANUAL HANDLING
+@auth_bp.route('/login', methods=['POST'])
 def login():
-    if request.method == 'OPTIONS':
-        response = make_response()
-        response.headers.add("Access-Control-Allow-Origin", FRONTEND_ORIGIN)
-        response.headers.add("Access-Control-Allow-Headers", "Content-Type")
-        response.headers.add("Access-Control-Allow-Methods", "POST, OPTIONS")
-        response.headers.add("Access-Control-Allow-Credentials", "true")
-        return response
-
     data = request.get_json()
     username = data.get('username')
     password = data.get('password')
