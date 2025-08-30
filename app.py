@@ -31,7 +31,7 @@ FRONTEND_ORIGINS = [
     "http://127.0.0.1:3001"
 ]
 
-# CORS configuration - MUST be before any other middleware
+# Simple CORS configuration - this should work
 CORS(
     app,
     origins=FRONTEND_ORIGINS,
@@ -39,36 +39,6 @@ CORS(
     allow_headers=["Content-Type", "Authorization", "X-Requested-With"],
     methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"]
 )
-
-# ------------------------------
-# Compression Handling Middleware (FIXED)
-# ------------------------------
-@app.after_request
-def after_request(response):
-    # Remove only compression headers, preserve CORS headers
-    if 'Content-Encoding' in response.headers:
-        # Only remove if it's brotli compression causing issues
-        if response.headers.get('Content-Encoding') == 'br':
-            response.headers.remove('Content-Encoding')
-    if 'Content-Length' in response.headers:
-        response.headers.remove('Content-Length')
-    response.direct_passthrough = False
-    return response
-
-# Handle preflight OPTIONS requests
-@app.before_request
-def handle_preflight():
-    if request.method == "OPTIONS":
-        response = jsonify()
-        origin = request.headers.get('Origin')
-        
-        if origin in FRONTEND_ORIGINS:
-            response.headers.add('Access-Control-Allow-Origin', origin)
-        response.headers.add('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With')
-        response.headers.add('Access-Control-Allow-Methods', 'GET, POST, PUT, PATCH, DELETE, OPTIONS')
-        response.headers.add('Access-Control-Allow-Credentials', 'true')
-        response.headers.add('Access-Control-Max-Age', '86400')
-        return response
 
 # ------------------------------
 # Health Check Endpoints
@@ -131,20 +101,6 @@ def internal_error(error):
     return {"error": "Internal server error", "status": 500}, 500
 
 # ------------------------------
-# Debug Routes
-# ------------------------------
-@app.route("/api/debug/routes")
-def debug_routes():
-    routes = []
-    for rule in app.url_map.iter_rules():
-        routes.append({
-            "endpoint": rule.endpoint,
-            "methods": list(rule.methods),
-            "path": str(rule)
-        })
-    return jsonify({"routes": routes})
-
-# ------------------------------
 # Teardown
 # ------------------------------
 @app.teardown_appcontext
@@ -161,7 +117,5 @@ if __name__ == "__main__":
     print(f" Starting Football Prediction Platform API on port {port}")
     print(f" Allowed CORS origins: {FRONTEND_ORIGINS}")
     print(f" Health check: http://localhost:{port}/api/health")
-    print(f" Debug routes: http://localhost:{port}/api/debug/routes")
-    print(f" Compression handling: Enabled (brotli only)")
     
     serve(app, host="0.0.0.0", port=port)
