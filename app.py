@@ -21,7 +21,7 @@ load_dotenv()
 app = Flask(__name__)
 
 # ------------------------------
-# CORS Configuration - FIXED SYNTAX
+# CORS Configuration - ENHANCED
 # ------------------------------
 FRONTEND_ORIGINS = [
     "https://predict-eplt6.netlify.app",
@@ -31,14 +31,32 @@ FRONTEND_ORIGINS = [
     "http://127.0.0.1:3001"
 ]
 
-# ✅ CORRECT: Use 'origins' (plural) not 'origin'
+# CORS configuration
 CORS(
     app,
-    origins=FRONTEND_ORIGINS,  # ← FIXED: 'origins' not 'origin'
+    origins=FRONTEND_ORIGINS,
     supports_credentials=True,
-    allow_headers=["Content-Type", "Authorization", "X-Requested-With"],
-    methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"]
+    allow_headers=["Content-Type", "Authorization", "X-Requested-With", "Accept"],
+    methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],  # ✅ Explicitly include DELETE
+    expose_headers=["Content-Type", "Authorization"]
 )
+
+# ------------------------------
+# Enhanced Preflight Handler for DELETE methods
+# ------------------------------
+@app.before_request
+def handle_preflight():
+    if request.method == "OPTIONS":
+        response = jsonify()
+        origin = request.headers.get('Origin')
+        
+        if origin in FRONTEND_ORIGINS:
+            response.headers.add('Access-Control-Allow-Origin', origin)
+        response.headers.add('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With, Accept')
+        response.headers.add('Access-Control-Allow-Methods', 'GET, POST, PUT, PATCH, DELETE, OPTIONS')  # ✅ Include DELETE
+        response.headers.add('Access-Control-Allow-Credentials', 'true')
+        response.headers.add('Access-Control-Max-Age', '86400')  # 24 hours cache
+        return response
 
 # ------------------------------
 # Health Check Endpoints
@@ -105,7 +123,8 @@ if __name__ == "__main__":
     from waitress import serve
     port = int(os.environ.get("PORT", 5000))
     
-    print("⚽ Server starting with fixed CORS configuration")
+    print("⚽ Server starting with enhanced CORS configuration")
     print(f"🌐 Allowed origins: {FRONTEND_ORIGINS}")
+    print(f"🔧 Methods allowed: GET, POST, PUT, PATCH, DELETE, OPTIONS")
     
     serve(app, host="0.0.0.0", port=port)
