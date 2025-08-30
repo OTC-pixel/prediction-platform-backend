@@ -1,31 +1,39 @@
 import psycopg2
+from psycopg2 import pool
 from psycopg2.extras import RealDictCursor
-from flask import g, has_app_context
 import os
 from dotenv import load_dotenv
 
 load_dotenv()
 
-def get_db():
-    conn_params = {
-        "host": os.getenv("DB_HOST", "aws-0-eu-north-1.pooler.supabase.com"),
-        "port": os.getenv("DB_PORT", "6543"),  # Pooler port
-        "dbname": os.getenv("DB_NAME", "postgres"),
-        "user": os.getenv("DB_USER"),  # e.g. postgres.jcfdrtzfqsiemsabaiwl
-        "password": os.getenv("DB_PASSWORD"),
-        "cursor_factory": RealDictCursor
-    }
+conn_params = {
+    "host": os.getenv("DB_HOST"),
+    "port": os.getenv("DB_PORT"),
+    "dbname": os.getenv("DB_NAME"),
+    "user": os.getenv("DB_USER"),
+    "password": os.getenv("DB_PASSWORD"),
+    "cursor_factory": RealDictCursor
+}
 
+# Create pool once
+db_pool = psycopg2.pool.SimpleConnectionPool(
+    1, 10,  # min and max connections
+    **conn_params
+)
+
+def get_db():
+    """Get a connection from the pool."""
     if has_app_context():
         if 'db' not in g:
-            g.db = psycopg2.connect(**conn_params)
+            g.db = db_pool.getconn()
         return g.db
     else:
-        # For scripts like fetch_fixtures.py
-        return psycopg2.connect(**conn_params)
+        # For scripts not running in Flask context
+        return db_pool.getconn()
 
 def close_db(e=None):
+    """Return connection to the pool."""
     if has_app_context():
         db = g.pop('db', None)
         if db is not None:
-            db.close()
+            db_pool.putconn(db)

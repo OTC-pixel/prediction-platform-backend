@@ -44,7 +44,8 @@ start_scheduler()
 
 @app.route("/ping")
 def ping():
-    return {"status": "alive"}
+    return {"status": "alive", "message": "Server is up!"}
+
 
 
 @app.route("/")
