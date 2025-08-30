@@ -1,6 +1,6 @@
 import os
 import sys
-from flask import Flask, request
+from flask import Flask, request, jsonify
 from flask_cors import CORS
 from dotenv import load_dotenv
 
@@ -25,13 +25,13 @@ app = Flask(__name__)
 # ------------------------------
 FRONTEND_ORIGINS = [
     "https://predict-eplt6.netlify.app",
-    "http://localhost:3000",      # for local development
-    "http://localhost:3001",      # alternative local port
-    "http://127.0.0.1:3000",      # localhost IP
-    "http://127.0.0.1:3001"       # alternative local IP
+    "http://localhost:3000",
+    "http://localhost:3001",
+    "http://127.0.0.1:3000",
+    "http://127.0.0.1:3001"
 ]
 
-# Simplified CORS configuration that works better
+# Simplified CORS configuration
 CORS(
     app,
     origins=FRONTEND_ORIGINS,
@@ -40,11 +40,11 @@ CORS(
     methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"]
 )
 
-# Handle preflight OPTIONS requests globally
+# Handle preflight OPTIONS requests
 @app.before_request
 def handle_preflight():
     if request.method == "OPTIONS":
-        response = app.make_default_options_response()
+        response = jsonify()
         origin = request.headers.get('Origin')
         
         if origin in FRONTEND_ORIGINS:
@@ -52,8 +52,42 @@ def handle_preflight():
         response.headers.add('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With')
         response.headers.add('Access-Control-Allow-Methods', 'GET, POST, PUT, PATCH, DELETE, OPTIONS')
         response.headers.add('Access-Control-Allow-Credentials', 'true')
-        response.headers.add('Access-Control-Max-Age', '86400')  # 24 hours
+        response.headers.add('Access-Control-Max-Age', '86400')
         return response
+
+# ------------------------------
+# Health Check Endpoint (ADD THIS FIRST)
+# ------------------------------
+@app.route("/ping")
+def ping():
+    return {"status": "alive", "message": "Server is up!"}
+
+@app.route("/api/health")
+def health_check():
+    return {
+        "status": "healthy", 
+        "frontend_origins": FRONTEND_ORIGINS,
+        "cors_enabled": True,
+        "endpoints_available": True
+    }
+
+# ------------------------------
+# Root Endpoint
+# ------------------------------
+@app.route("/")
+def home():
+    return {
+        "message": "Football Prediction Platform API",
+        "version": "1.0.0",
+        "endpoints": {
+            "health": "/api/health",
+            "ping": "/ping",
+            "auth": "/api/auth",
+            "admin": "/api/admin",
+            "fixtures": "/api/fixtures",
+            "predictions": "/api/predictions"
+        }
+    }
 
 # ------------------------------
 # Blueprints Registration
@@ -69,38 +103,6 @@ app.register_blueprint(results_bp, url_prefix="/api/results")
 # Scheduler
 # ------------------------------
 start_scheduler()
-
-# ------------------------------
-# Health Check Endpoint
-# ------------------------------
-@app.route("/ping")
-def ping():
-    return {"status": "alive", "message": "Server is up!"}
-
-@app.route("/api/health")
-def health_check():
-    return {
-        "status": "healthy", 
-        "frontend_origins": FRONTEND_ORIGINS,
-        "cors_enabled": True
-    }
-
-# ------------------------------
-# Root Endpoint
-# ------------------------------
-@app.route("/")
-def home():
-    return {
-        "message": "Football Prediction Platform API",
-        "version": "1.0.0",
-        "endpoints": {
-            "health": "/api/health",
-            "auth": "/api/auth",
-            "admin": "/api/admin",
-            "fixtures": "/api/fixtures",
-            "predictions": "/api/predictions"
-        }
-    }
 
 # ------------------------------
 # Error Handlers
@@ -121,6 +123,20 @@ def teardown_db(exception):
     close_db()
 
 # ------------------------------
+# Debug Routes (for testing)
+# ------------------------------
+@app.route("/api/debug/routes")
+def debug_routes():
+    routes = []
+    for rule in app.url_map.iter_rules():
+        routes.append({
+            "endpoint": rule.endpoint,
+            "methods": list(rule.methods),
+            "path": str(rule)
+        })
+    return jsonify({"routes": routes})
+
+# ------------------------------
 # Main Execution
 # ------------------------------
 if __name__ == "__main__":
@@ -130,5 +146,6 @@ if __name__ == "__main__":
     print(f" Starting Football Prediction Platform API on port {port}")
     print(f" Allowed CORS origins: {FRONTEND_ORIGINS}")
     print(f" Health check: http://localhost:{port}/api/health")
+    print(f" Debug routes: http://localhost:{port}/api/debug/routes")
     
     serve(app, host="0.0.0.0", port=port)
