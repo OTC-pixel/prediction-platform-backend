@@ -31,7 +31,7 @@ FRONTEND_ORIGINS = [
     "http://127.0.0.1:3001"
 ]
 
-# CORS configuration
+# CORS configuration - MUST be before any other middleware
 CORS(
     app,
     origins=FRONTEND_ORIGINS,
@@ -41,13 +41,15 @@ CORS(
 )
 
 # ------------------------------
-# Compression Handling Middleware
+# Compression Handling Middleware (FIXED)
 # ------------------------------
 @app.after_request
 def after_request(response):
-    # Remove compression headers to prevent Brotli issues
+    # Remove only compression headers, preserve CORS headers
     if 'Content-Encoding' in response.headers:
-        response.headers.remove('Content-Encoding')
+        # Only remove if it's brotli compression causing issues
+        if response.headers.get('Content-Encoding') == 'br':
+            response.headers.remove('Content-Encoding')
     if 'Content-Length' in response.headers:
         response.headers.remove('Content-Length')
     response.direct_passthrough = False
@@ -160,6 +162,6 @@ if __name__ == "__main__":
     print(f" Allowed CORS origins: {FRONTEND_ORIGINS}")
     print(f" Health check: http://localhost:{port}/api/health")
     print(f" Debug routes: http://localhost:{port}/api/debug/routes")
-    print(f" Compression handling: Enabled")
+    print(f" Compression handling: Enabled (brotli only)")
     
     serve(app, host="0.0.0.0", port=port)
