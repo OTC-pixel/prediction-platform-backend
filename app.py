@@ -1,11 +1,12 @@
 import os
 import sys
-sys.path.append(os.path.dirname(os.path.abspath(__file__)))
-
-from flask import Flask
+from flask import Flask, request
 from flask_cors import CORS
 from dotenv import load_dotenv
 
+sys.path.append(os.path.dirname(os.path.abspath(__file__)))
+
+# Import your blueprints
 from routes.auth import auth_bp
 from routes.admin import admin_bp
 from routes.predictions import predictions_bp
@@ -20,23 +21,42 @@ load_dotenv()
 app = Flask(__name__)
 
 # ------------------------------
-# CORS: allow Netlify frontend for all routes
+# CORS Configuration - FIXED
 # ------------------------------
 FRONTEND_ORIGINS = [
-    "https://predict-eplt6.netlify.app"
+    "https://predict-eplt6.netlify.app",
+    "http://localhost:3000",      # for local development
+    "http://localhost:3001",      # alternative local port
+    "http://127.0.0.1:3000",      # localhost IP
+    "http://127.0.0.1:3001"       # alternative local IP
 ]
 
+# Simplified CORS configuration that works better
 CORS(
     app,
-    resources={r"/*": {"origins": FRONTEND_ORIGINS}},  # all routes
+    origins=FRONTEND_ORIGINS,
     supports_credentials=True,
-    allow_headers=["Content-Type", "Authorization"],
-    expose_headers=["Content-Type"],
-    methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+    allow_headers=["Content-Type", "Authorization", "X-Requested-With"],
+    methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"]
 )
 
+# Handle preflight OPTIONS requests globally
+@app.before_request
+def handle_preflight():
+    if request.method == "OPTIONS":
+        response = app.make_default_options_response()
+        origin = request.headers.get('Origin')
+        
+        if origin in FRONTEND_ORIGINS:
+            response.headers.add('Access-Control-Allow-Origin', origin)
+        response.headers.add('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With')
+        response.headers.add('Access-Control-Allow-Methods', 'GET, POST, PUT, PATCH, DELETE, OPTIONS')
+        response.headers.add('Access-Control-Allow-Credentials', 'true')
+        response.headers.add('Access-Control-Max-Age', '86400')  # 24 hours
+        return response
+
 # ------------------------------
-# Blueprints
+# Blueprints Registration
 # ------------------------------
 app.register_blueprint(auth_bp, url_prefix="/api/auth")
 app.register_blueprint(admin_bp, url_prefix="/api/admin")
@@ -51,18 +71,47 @@ app.register_blueprint(results_bp, url_prefix="/api/results")
 start_scheduler()
 
 # ------------------------------
-# Ping endpoint
+# Health Check Endpoint
 # ------------------------------
 @app.route("/ping")
 def ping():
     return {"status": "alive", "message": "Server is up!"}
 
+@app.route("/api/health")
+def health_check():
+    return {
+        "status": "healthy", 
+        "frontend_origins": FRONTEND_ORIGINS,
+        "cors_enabled": True
+    }
+
 # ------------------------------
-# Root
+# Root Endpoint
 # ------------------------------
 @app.route("/")
 def home():
-    return "Football Prediction Platform Running"
+    return {
+        "message": "Football Prediction Platform API",
+        "version": "1.0.0",
+        "endpoints": {
+            "health": "/api/health",
+            "auth": "/api/auth",
+            "admin": "/api/admin",
+            "fixtures": "/api/fixtures",
+            "predictions": "/api/predictions"
+        }
+    }
+
+# ------------------------------
+# Error Handlers
+# ------------------------------
+@app.errorhandler(404)
+def not_found(error):
+    return {"error": "Endpoint not found", "status": 404}, 404
+
+@app.errorhandler(500)
+def internal_error(error):
+    return {"error": "Internal server error", "status": 500}, 500
 
 # ------------------------------
 # Teardown
@@ -72,9 +121,14 @@ def teardown_db(exception):
     close_db()
 
 # ------------------------------
-# Run
+# Main Execution
 # ------------------------------
 if __name__ == "__main__":
     from waitress import serve
     port = int(os.environ.get("PORT", 5000))
+    
+    print(f" Starting Football Prediction Platform API on port {port}")
+    print(f" Allowed CORS origins: {FRONTEND_ORIGINS}")
+    print(f" Health check: http://localhost:{port}/api/health")
+    
     serve(app, host="0.0.0.0", port=port)
