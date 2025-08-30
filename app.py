@@ -20,7 +20,7 @@ load_dotenv()
 app = Flask(__name__)
 
 # ------------------------------
-# CORS: allow Netlify frontend
+# CORS: allow Netlify frontend for all routes
 # ------------------------------
 FRONTEND_ORIGINS = [
     "https://predict-epl6.netlify.app"
@@ -28,7 +28,7 @@ FRONTEND_ORIGINS = [
 
 CORS(
     app,
-    resources={r"/api/*": {"origins": FRONTEND_ORIGINS}},
+    resources={r"/*": {"origins": FRONTEND_ORIGINS}},  # all routes
     supports_credentials=True,
     allow_headers=["Content-Type", "Authorization"],
     expose_headers=["Content-Type"],
