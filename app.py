@@ -42,6 +42,11 @@ app.register_blueprint(results_bp, url_prefix="/api/results")
 # Start scheduler
 start_scheduler()
 
+@app.route("/ping")
+def ping():
+    return {"status": "alive"}
+
+
 @app.route("/")
 def home():
     return "Football Prediction Platform Running"
