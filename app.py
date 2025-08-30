@@ -19,8 +19,14 @@ load_dotenv()
 
 app = Flask(__name__)
 
-# Allow your frontend(s). In prod, set FRONTEND_ORIGINS env to comma-separated list.
-FRONTEND_ORIGINS = [o.strip() for o in os.getenv("FRONTEND_ORIGINS", "http://localhost:3000").split(",")]
+# ------------------------------
+# CORS: allow multiple frontend origins
+# ------------------------------
+# Add localhost for dev, production URL(s) later
+FRONTEND_ORIGINS = [
+    "http://localhost:3000", 
+    # "https://your-production-frontend.com"  # uncomment when frontend is hosted
+]
 
 CORS(
     app,
@@ -31,7 +37,9 @@ CORS(
     methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
 )
 
-# Blueprints (note the prefixes)
+# ------------------------------
+# Blueprints
+# ------------------------------
 app.register_blueprint(auth_bp, url_prefix="/api/auth")
 app.register_blueprint(admin_bp, url_prefix="/api/admin")
 app.register_blueprint(fixtures_bp, url_prefix="/api/fixtures")
@@ -39,26 +47,36 @@ app.register_blueprint(predictions_bp, url_prefix="/api/predictions")
 app.register_blueprint(leaderboard_bp, url_prefix="/api/leaderboard")
 app.register_blueprint(results_bp, url_prefix="/api/results")
 
-# Start scheduler
+# ------------------------------
+# Scheduler
+# ------------------------------
 start_scheduler()
 
+# ------------------------------
+# Ping endpoint
+# ------------------------------
 @app.route("/ping")
 def ping():
     return {"status": "alive", "message": "Server is up!"}
 
-
-
+# ------------------------------
+# Root
+# ------------------------------
 @app.route("/")
 def home():
     return "Football Prediction Platform Running"
 
+# ------------------------------
+# Teardown
+# ------------------------------
 @app.teardown_appcontext
 def teardown_db(exception):
     close_db()
 
+# ------------------------------
+# Run
+# ------------------------------
 if __name__ == "__main__":
     from waitress import serve
-
     # Production-ready server
     serve(app, host="0.0.0.0", port=5000)
-
