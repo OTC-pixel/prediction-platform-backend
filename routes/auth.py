@@ -1,11 +1,10 @@
 from flask import Blueprint, request, jsonify
 from services.user import create_user, verify_user
 from utils.token import generate_token
-import os
 
 auth_bp = Blueprint('auth', __name__)
 
-# ✅ REGISTER - REMOVED ALL CORS DECORATORS AND MANUAL HANDLING
+# ✅ REGISTER - NO CORS, NO OPTIONS, JUST POST
 @auth_bp.route("/register", methods=["POST"])
 def register():
     data = request.get_json()
@@ -23,17 +22,14 @@ def register():
     else:
         return jsonify({'message': 'Username already exists.'}), 400
 
-# ✅ LOGIN - REMOVED ALL CORS DECORATORS AND MANUAL HANDLING
+# ✅ LOGIN - NO CORS, NO OPTIONS, JUST POST
 @auth_bp.route('/login', methods=['POST'])
 def login():
     data = request.get_json()
     username = data.get('username')
     password = data.get('password')
 
-    print(f"\n🔐 Login attempt: {username} / {password}")
     user = verify_user(username, password)
-
-    print(f"✅ User verification result: {user}")
 
     if user:
         if user['is_approved']:

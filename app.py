@@ -1,7 +1,6 @@
 import os
 import sys
-from flask import Flask, request, jsonify
-from flask_cors import CORS
+from flask import Flask, jsonify
 from dotenv import load_dotenv
 
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
@@ -21,24 +20,43 @@ load_dotenv()
 app = Flask(__name__)
 
 # ------------------------------
-# CORS Configuration - SIMPLIFIED
+# MANUAL CORS HANDLING (No Flask-CORS)
 # ------------------------------
 FRONTEND_ORIGINS = [
-    "https://predict-eplt6.netlify.app",  # Production frontend
-    "http://localhost:3000",              # Local development
-    "http://localhost:3001",              # Alternative local port
-    "http://127.0.0.1:3000",              # Local IP
-    "http://127.0.0.1:3001"               # Alternative local IP
+    "https://predict-eplt6.netlify.app",
+    "http://localhost:3000",
+    "http://localhost:3001",
+    "http://127.0.0.1:3000",
+    "http://127.0.0.1:3001"
 ]
 
-# ONLY USE FLASK-CORS - remove manual handlers to avoid duplicates
-CORS(
-    app,
-    origins=FRONTEND_ORIGINS,
-    supports_credentials=True,
-    allow_headers=["Content-Type", "Authorization", "X-Requested-With", "Accept"],
-    methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"]
-)
+@app.before_request
+def handle_cors():
+    """Handle CORS for all requests"""
+    origin = request.headers.get('Origin')
+    
+    if origin in FRONTEND_ORIGINS:
+        # Handle preflight requests
+        if request.method == 'OPTIONS':
+            response = jsonify()
+            response.headers.add('Access-Control-Allow-Origin', origin)
+            response.headers.add('Access-Control-Allow-Headers', 'Content-Type, Authorization')
+            response.headers.add('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS')
+            response.headers.add('Access-Control-Allow-Credentials', 'true')
+            response.headers.add('Access-Control-Max-Age', '86400')
+            return response
+
+@app.after_request
+def add_cors_headers(response):
+    """Add CORS headers to all responses"""
+    origin = request.headers.get('Origin')
+    
+    if origin in FRONTEND_ORIGINS:
+        response.headers.add('Access-Control-Allow-Origin', origin)
+        response.headers.add('Access-Control-Allow-Credentials', 'true')
+        response.headers.add('Access-Control-Expose-Headers', 'Content-Type, Authorization')
+    
+    return response
 
 # ------------------------------
 # Health Check Endpoints
@@ -52,8 +70,7 @@ def health_check():
     return jsonify({
         "status": "healthy", 
         "frontend_origins": FRONTEND_ORIGINS,
-        "cors_enabled": True,
-        "endpoints_available": True
+        "cors_enabled": True
     })
 
 # ------------------------------
@@ -63,17 +80,7 @@ def health_check():
 def home():
     return jsonify({
         "message": "Football Prediction Platform API",
-        "version": "1.0.0",
-        "endpoints": {
-            "health": "/api/health",
-            "ping": "/ping",
-            "auth": "/api/auth",
-            "admin": "/api/admin",
-            "fixtures": "/api/fixtures",
-            "predictions": "/api/predictions",
-            "leaderboard": "/api/leaderboard",
-            "results": "/api/results"
-        }
+        "version": "1.0.0"
     })
 
 # ------------------------------
@@ -102,10 +109,6 @@ def not_found(error):
 def internal_error(error):
     return jsonify({"error": "Internal server error", "status": 500}), 500
 
-@app.errorhandler(401)
-def unauthorized(error):
-    return jsonify({"error": "Unauthorized", "status": 401}), 401
-
 # ------------------------------
 # Teardown
 # ------------------------------
@@ -122,8 +125,7 @@ if __name__ == "__main__":
     
     print(" Football Prediction Platform API Starting...")
     print(f" Port: {port}")
-    print(f" Allowed Origins: {FRONTEND_ORIGINS}")
-    print(f" CORS: ENABLED (Flask-CORS only)")
+    print(f" Manual CORS handling for: {FRONTEND_ORIGINS}")
     print(" Server ready!")
     
     serve(app, host="0.0.0.0", port=port)
