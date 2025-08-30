@@ -42,11 +42,32 @@ def approve_user(username):
             return cur.rowcount > 0
 
 def reject_user(username):
-    with get_connection() as conn:
+    conn = get_connection()
+    try:
         with conn.cursor() as cur:
+            # 1. First get user ID
+            cur.execute("SELECT id FROM users WHERE username = %s", (username,))
+            user = cur.fetchone()
+            
+            if not user:
+                return False
+                
+            user_id = user[0]
+            
+            # 2. Delete user's predictions first
+            cur.execute("DELETE FROM predictions WHERE user_id = %s", (user_id,))
+            
+            # 3. Now delete the user
             cur.execute("DELETE FROM users WHERE username = %s", (username,))
+            
             conn.commit()
-            return cur.rowcount > 0
+            return True
+    except Exception as e:
+        conn.rollback()
+        print(f"Error rejecting user {username}: {e}")
+        return False
+    finally:
+        conn.close()
 
 
 # ----- Fixture Management -----
@@ -130,11 +151,32 @@ def get_approved_users():
 
 
 def delete_user(username):
-    with get_connection() as conn:
+    conn = get_connection()
+    try:
         with conn.cursor() as cur:
+            # 1. First get user ID
+            cur.execute("SELECT id FROM users WHERE username = %s", (username,))
+            user = cur.fetchone()
+            
+            if not user:
+                return False
+                
+            user_id = user[0]
+            
+            # 2. Delete user's predictions first
+            cur.execute("DELETE FROM predictions WHERE user_id = %s", (user_id,))
+            
+            # 3. Now delete the user
             cur.execute("DELETE FROM users WHERE username = %s", (username,))
+            
             conn.commit()
-            return cur.rowcount > 0
+            return True
+    except Exception as e:
+        conn.rollback()
+        print(f"Error deleting user {username}: {e}")
+        return False
+    finally:
+        conn.close()
 
 
 def update_fixture_result(fixture_id, result):
