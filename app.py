@@ -23,7 +23,7 @@ app = Flask(__name__)
 # CORS: allow Netlify frontend for all routes
 # ------------------------------
 FRONTEND_ORIGINS = [
-    "https://predict-epl6.netlify.app"
+    "https://predict-eplt6.netlify.app"
 ]
 
 CORS(
