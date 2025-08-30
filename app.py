@@ -25,7 +25,7 @@ app = Flask(__name__)
 # Add localhost for dev, production URL(s) later
 FRONTEND_ORIGINS = [
     "http://localhost:3000", 
-    # "https://your-production-frontend.com"  # uncomment when frontend is hosted
+    "https://zesty-shortbread-d98c95.netlify.app"
 ]
 
 CORS(
