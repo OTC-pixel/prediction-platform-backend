@@ -20,11 +20,9 @@ load_dotenv()
 app = Flask(__name__)
 
 # ------------------------------
-# CORS: allow multiple frontend origins
+# CORS: allow Netlify frontend
 # ------------------------------
-# Add localhost for dev, production URL(s) later
 FRONTEND_ORIGINS = [
-    "http://localhost:3000", 
     "https://zesty-shortbread-d98c95.netlify.app"
 ]
 
@@ -80,4 +78,3 @@ if __name__ == "__main__":
     from waitress import serve
     port = int(os.environ.get("PORT", 5000))
     serve(app, host="0.0.0.0", port=port)
-
