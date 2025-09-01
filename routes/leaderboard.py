@@ -1,11 +1,10 @@
 from flask import Blueprint, jsonify, request
 from services.leaderboard import get_leaderboard as fetch_leaderboard
 
-leaderboard_bp = Blueprint('leaderboard', __name__)
+leaderboard_bp = Blueprint('leaderboard', __name__, url_prefix="/api/leaderboard")
 
-# Accept both `/api/leaderboard` and `/api/leaderboard/` without redirect
-@leaderboard_bp.route('', methods=['GET', 'OPTIONS'])
-@leaderboard_bp.route('/', methods=['GET', 'OPTIONS'])
+@leaderboard_bp.route('', methods=['GET', 'OPTIONS'], strict_slashes=False)
+@leaderboard_bp.route('/', methods=['GET', 'OPTIONS'], strict_slashes=False)
 def leaderboard():
     # Handle CORS preflight
     if request.method == "OPTIONS":
