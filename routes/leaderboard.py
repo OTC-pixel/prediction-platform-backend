@@ -3,6 +3,8 @@ from services.leaderboard import get_leaderboard as fetch_leaderboard
 
 leaderboard_bp = Blueprint('leaderboard', __name__)
 
+# Accept both `/api/leaderboard` and `/api/leaderboard/` without redirect
+@leaderboard_bp.route('', methods=['GET', 'OPTIONS'])
 @leaderboard_bp.route('/', methods=['GET', 'OPTIONS'])
 def leaderboard():
     # Handle CORS preflight
