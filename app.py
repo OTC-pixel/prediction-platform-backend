@@ -24,11 +24,7 @@ app = Flask(__name__)
 # CORS Configuration
 # ------------------------------
 FRONTEND_ORIGINS = [
-    "https://predict-eplt6.netlify.app",
-    "http://localhost:3000",
-    "http://localhost:3001", 
-    "http://127.0.0.1:3000",
-    "http://127.0.0.1:3001"
+    "https://predict-eplt6.netlify.app"
 ]
 
 # CORS configuration
