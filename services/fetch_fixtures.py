@@ -165,7 +165,7 @@ def collect_flexible_matchday_fixtures():
         if fixtures:
             return fixtures
 
-    return try_fetch_fixtures(1, 7)
+    return try_fetch_fixtures(1, 14)
 
 
 def auto_update_if_due():
