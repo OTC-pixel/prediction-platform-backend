@@ -20,18 +20,20 @@ def pending_users():
 # --- Approve user ---
 @admin_bp.route('/approve-user/<username>', methods=['POST'])
 def approve(username):
-    success = approve_user(username)
+    clean_username = username.strip()
+    success = approve_user(clean_username)
     if success:
-        return jsonify({'message': f'{username} approved'}), 200
+        return jsonify({'message': f'{clean_username} approved'}), 200
     return jsonify({'message': 'Approval failed'}), 400
 
 
 # --- Reject user ---
 @admin_bp.route('/reject-user/<username>', methods=['POST'])
 def reject(username):
-    success = reject_user(username)
+    clean_username = username.strip()
+    success = reject_user(clean_username)
     if success:
-        return jsonify({'message': f'{username} rejected'}), 200
+        return jsonify({'message': f'{clean_username} rejected'}), 200
     return jsonify({'message': 'Rejection failed'}), 400
 
 
@@ -94,9 +96,10 @@ def approved_users():
 # --- Delete user ---
 @admin_bp.route('/delete-user/<username>', methods=['DELETE'])
 def delete(username):
-    success = delete_user(username)
+    clean_username = username.strip()   # ✅ sanitize
+    success = delete_user(clean_username)
     if success:
-        return jsonify({'message': f'{username} deleted successfully'}), 200
+        return jsonify({'message': f'{clean_username} deleted successfully'}), 200
     return jsonify({'message': 'Failed to delete user'}), 400
 
 

@@ -22,6 +22,7 @@ DB_PARAMS = {
 UK_TIMEZONE = ZoneInfo("Europe/London")
 UTC_TIMEZONE = ZoneInfo("UTC")
 
+
 def get_connection():
     return psycopg2.connect(**DB_PARAMS)
 
@@ -34,14 +35,18 @@ def get_pending_users():
             rows = cur.fetchall()
             return [{'username': r[0], 'fullName': r[1], 'team': r[2]} for r in rows]
 
+
 def approve_user(username):
+    username = username.strip()  # ✅ sanitize
     with get_connection() as conn:
         with conn.cursor() as cur:
             cur.execute("UPDATE users SET is_approved = 1 WHERE username = %s", (username,))
             conn.commit()
             return cur.rowcount > 0
 
+
 def reject_user(username):
+    username = username.strip()  # ✅ sanitize
     conn = get_connection()
     try:
         with conn.cursor() as cur:
@@ -90,6 +95,7 @@ def add_fixture(matchday, home_team, away_team, kickoff_time_str):
             """, (matchday, home_team, away_team, utc_time_str))
             conn.commit()
             return True
+
 
 def get_all_fixtures():
     with get_connection() as conn:
@@ -151,6 +157,7 @@ def get_approved_users():
 
 
 def delete_user(username):
+    username = username.strip()  # ✅ sanitize
     conn = get_connection()
     try:
         with conn.cursor() as cur:
