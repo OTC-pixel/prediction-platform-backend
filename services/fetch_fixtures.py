@@ -11,10 +11,17 @@ load_dotenv()
 
 BBC_API_BASE = "https://web-cdn.api.bbci.co.uk/wc-poll-data/container/sport-data-scores-fixtures"
 
-BIG_EIGHT = {
-    "Arsenal", "Manchester City", "Manchester United", "Chelsea",
-    "Liverpool", "Tottenham Hotspur", "Newcastle United", "Aston Villa"
-}
+PREFERENCE_ORDER = [
+    "Manchester United",
+    "Arsenal",
+    "Liverpool",
+    "Chelsea",
+    "Manchester City",
+    "Tottenham Hotspur",
+    "Aston Villa",
+    "Newcastle United"
+]
+
 
 def get_last_kickoff_time():
     conn = get_db()
@@ -43,7 +50,7 @@ def fetch_bbc_fixtures_for_day(date_str):
         data = res.json()
         events = []
         for group in data.get("eventGroups", []):
-            if group.get("displayLabel") == "Premier League":  # only EPL
+            if group.get("displayLabel") == "Premier League":
                 for sec in group.get("secondaryGroups", []):
                     events.extend(sec.get("events", []))
         return events
@@ -53,7 +60,7 @@ def fetch_bbc_fixtures_for_day(date_str):
 
 
 def filter_priority_fixtures(events):
-    top = []
+    fixtures_by_team = []
     others = []
 
     for ev in events:
@@ -63,16 +70,26 @@ def filter_priority_fixtures(events):
             kickoff = ev["startDateTime"]
             fixture = {"home": home, "away": away, "kickoff": kickoff}
 
-            if home in BIG_EIGHT or away in BIG_EIGHT:
-                top.append(fixture)
+            if home in PREFERENCE_ORDER or away in PREFERENCE_ORDER:
+                fixtures_by_team.append(fixture)
             else:
                 others.append(fixture)
         except KeyError:
             continue
 
-    selected = top[:6]
+    # Sort by preference order
+    def pref_index(fix):
+        for team in PREFERENCE_ORDER:
+            if fix["home"] == team or fix["away"] == team:
+                return PREFERENCE_ORDER.index(team)
+        return len(PREFERENCE_ORDER)
+
+    fixtures_by_team.sort(key=pref_index)
+
+    # Take top 6, fill with others if needed
+    selected = fixtures_by_team[:6]
     if len(selected) < 6:
-        selected += others[:(6 - len(selected))]
+        selected += others[: (6 - len(selected))]
 
     return selected
 
@@ -87,9 +104,14 @@ def try_fetch_fixtures(start_offset, range_days):
         events = fetch_bbc_fixtures_for_day(date_str)
         collected.extend(events)
 
-        filtered = filter_priority_fixtures(collected)
-        if len(filtered) >= 6:
-            return filtered[:6]
+        # If we have at least 10 EPL fixtures, stop (full round collected)
+        pl_fixtures = [
+            f for f in collected
+            if f.get("tournament", {}).get("name") == "Premier League"
+        ]
+        if len(pl_fixtures) >= 10:
+            pl_fixtures = pl_fixtures[:10]
+            return filter_priority_fixtures(pl_fixtures)
 
     return []
 
@@ -161,11 +183,11 @@ def collect_flexible_matchday_fixtures():
         if fixtures:
             return fixtures
 
-        fixtures = try_fetch_fixtures(1, 14)
+        fixtures = try_fetch_fixtures(1, 16)
         if fixtures:
             return fixtures
 
-    return try_fetch_fixtures(1, 14)
+    return try_fetch_fixtures(1, 16)
 
 
 def auto_update_if_due():
@@ -174,7 +196,7 @@ def auto_update_if_due():
 
     if last_kickoff:
         now = datetime.now(timezone.utc)
-        if now < last_kickoff + timedelta(hours=14):  # ⏳ 14 hours instead of 18 or 6
+        if now < last_kickoff + timedelta(hours=14):
             remaining = (last_kickoff + timedelta(hours=14)) - now
             print(f"{remaining} remaining before update allowed.")
             return
@@ -197,6 +219,4 @@ def auto_update_if_due():
 
 
 if __name__ == "__main__":
-    
     auto_update_if_due()
-
