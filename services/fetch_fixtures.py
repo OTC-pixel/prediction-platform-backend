@@ -11,15 +11,10 @@ load_dotenv()
 
 BBC_API_BASE = "https://web-cdn.api.bbci.co.uk/wc-poll-data/container/sport-data-scores-fixtures"
 
-PREFERENCE_ORDER = [
-    "Manchester United",
-    "Arsenal",
-    "Liverpool",
-    "Chelsea",
-    "Manchester City",
-    "Tottenham Hotspur",
-    "Aston Villa",
-    "Newcastle United"
+# Ordered preference for Big 8 teams
+BIG_EIGHT_ORDER = [
+    "Manchester United", "Arsenal", "Liverpool", "Chelsea",
+    "Manchester City", "Tottenham Hotspur", "Aston Villa", "Newcastle United"
 ]
 
 
@@ -50,7 +45,7 @@ def fetch_bbc_fixtures_for_day(date_str):
         data = res.json()
         events = []
         for group in data.get("eventGroups", []):
-            if group.get("displayLabel") == "Premier League":
+            if group.get("displayLabel") == "Premier League":  # only EPL
                 for sec in group.get("secondaryGroups", []):
                     events.extend(sec.get("events", []))
         return events
@@ -60,7 +55,11 @@ def fetch_bbc_fixtures_for_day(date_str):
 
 
 def filter_priority_fixtures(events):
-    fixtures_by_team = []
+    """
+    Apply Big 8 preference order. If less than 6 fixtures after filtering,
+    fill with other fixtures.
+    """
+    fixtures = []
     others = []
 
     for ev in events:
@@ -69,27 +68,22 @@ def filter_priority_fixtures(events):
             away = ev["away"]["fullName"]
             kickoff = ev["startDateTime"]
             fixture = {"home": home, "away": away, "kickoff": kickoff}
-
-            if home in PREFERENCE_ORDER or away in PREFERENCE_ORDER:
-                fixtures_by_team.append(fixture)
-            else:
-                others.append(fixture)
+            fixtures.append(fixture)
         except KeyError:
             continue
 
-    # Sort by preference order
-    def pref_index(fix):
-        for team in PREFERENCE_ORDER:
-            if fix["home"] == team or fix["away"] == team:
-                return PREFERENCE_ORDER.index(team)
-        return len(PREFERENCE_ORDER)
+    # Sort fixtures based on Big 8 preference
+    def preference_score(fix):
+        teams = [fix["home"], fix["away"]]
+        for idx, team in enumerate(BIG_EIGHT_ORDER):
+            if team in teams:
+                return idx
+        return len(BIG_EIGHT_ORDER) + 1  # non Big 8 go last
 
-    fixtures_by_team.sort(key=pref_index)
+    fixtures.sort(key=preference_score)
 
-    # Take top 6, fill with others if needed
-    selected = fixtures_by_team[:6]
-    if len(selected) < 6:
-        selected += others[: (6 - len(selected))]
+    # Take top 6 preferred fixtures
+    selected = fixtures[:6]
 
     return selected
 
@@ -104,14 +98,19 @@ def try_fetch_fixtures(start_offset, range_days):
         events = fetch_bbc_fixtures_for_day(date_str)
         collected.extend(events)
 
-        # If we have at least 10 EPL fixtures, stop (full round collected)
-        pl_fixtures = [
-            f for f in collected
-            if f.get("tournament", {}).get("name") == "Premier League"
-        ]
-        if len(pl_fixtures) >= 10:
-            pl_fixtures = pl_fixtures[:10]
-            return filter_priority_fixtures(pl_fixtures)
+    # Get only Premier League fixtures
+    pl_fixtures = [
+        f for f in collected
+        if f.get("tournament", {}).get("name") == "Premier League"
+    ]
+
+    # Fallback logic: 10 → 9 → 8 fixtures
+    if len(pl_fixtures) >= 10:
+        return filter_priority_fixtures(pl_fixtures[:10])
+    elif len(pl_fixtures) == 9:
+        return filter_priority_fixtures(pl_fixtures)
+    elif len(pl_fixtures) == 8:
+        return filter_priority_fixtures(pl_fixtures)
 
     return []
 
@@ -196,7 +195,7 @@ def auto_update_if_due():
 
     if last_kickoff:
         now = datetime.now(timezone.utc)
-        if now < last_kickoff + timedelta(hours=14):
+        if now < last_kickoff + timedelta(hours=14):  
             remaining = (last_kickoff + timedelta(hours=14)) - now
             print(f"{remaining} remaining before update allowed.")
             return
