@@ -151,17 +151,28 @@ def store_results(matchday, results_json, human_results):
         print(f" Stored results and updated records for matchday {matchday}.")
 
 
-if __name__ == "__main__":
+def run_once():
+    """
+    Single entry point for both the scheduler and manual/CLI runs: find the
+    latest completed matchday, fetch its results, store them, and evaluate
+    predictions. Used to be split across this file's __main__ block and a
+    separate runner.py that redundantly re-triggered evaluation on its own
+    hourly schedule -- consolidated into one path.
+    """
     matchday = get_latest_completed_matchday()
     if matchday is None:
-        print(" No completed matchday found or already processed.")
+        print("No completed matchday found or already processed.")
+        return
+    print(f"Fetching results for matchday {matchday}...")
+    results_json, human_results = fetch_results_for_matchday(matchday)
+    if results_json:
+        store_results(matchday, results_json, human_results)
+        print("Triggering prediction evaluation...")
+        process_and_evaluate_latest_matchday()
+        print("Prediction evaluation complete.")
     else:
-        print(f" Fetching results for matchday {matchday}...")
-        results_json, human_results = fetch_results_for_matchday(matchday)
-        if results_json:
-            store_results(matchday, results_json, human_results)
-            print(" Triggering prediction evaluation...")
-            process_and_evaluate_latest_matchday()
-            print(" Prediction evaluation complete.")
-        else:
-            print(" No valid results found for this matchday.")
+        print("No valid results found for this matchday.")
+
+
+if __name__ == "__main__":
+    run_once()

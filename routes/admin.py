@@ -4,21 +4,27 @@ from services.admin import (
     add_fixture, get_all_fixtures, get_approved_users,
     delete_user, update_fixture_result, reset_season
 )
+from utils.token import role_required
 from dateutil import parser
 import pytz
 from datetime import datetime
 
 admin_bp = Blueprint('admin', __name__)
 
-# --- Get pending users ---
+# Every route in this file is admin-only. This blueprint used to have zero
+# route protection at all -- confirmed live during testing, anyone could
+# approve users, add/delete fixtures, or wipe the season with no token.
+
+
 @admin_bp.route('/pending-users', methods=['GET'])
+@role_required('admin')
 def pending_users():
     users = get_pending_users()
     return jsonify(users), 200
 
 
-# --- Approve user ---
 @admin_bp.route('/approve-user/<username>', methods=['POST'])
+@role_required('admin')
 def approve(username):
     clean_username = username.strip()
     success = approve_user(clean_username)
@@ -27,8 +33,8 @@ def approve(username):
     return jsonify({'message': 'Approval failed'}), 400
 
 
-# --- Reject user ---
 @admin_bp.route('/reject-user/<username>', methods=['POST'])
+@role_required('admin')
 def reject(username):
     clean_username = username.strip()
     success = reject_user(clean_username)
@@ -37,16 +43,22 @@ def reject(username):
     return jsonify({'message': 'Rejection failed'}), 400
 
 
-# --- Add fixture ---
 @admin_bp.route('/fixtures', methods=['POST'])
+@role_required('admin')
 def create_fixture():
     data = request.get_json()
     required_fields = ['matchday', 'home_team', 'away_team', 'kickoff_time']
-    if not all(field in data for field in required_fields):
+    if not data or not all(field in data for field in required_fields):
         return jsonify({'message': 'Missing fields'}), 400
 
     try:
-        uk_time = parser.isoparse(data['kickoff_time']).replace(tzinfo=pytz.timezone('Europe/London'))
+        # NOTE: pytz timezones must be applied via localize(), not
+        # .replace(tzinfo=...) -- replace() bypasses DST normalization and
+        # silently uses London's historical LMT offset (-00:01) instead of
+        # the correct BST/GMT offset for the given date.
+        london = pytz.timezone('Europe/London')
+        naive_time = parser.isoparse(data['kickoff_time']).replace(tzinfo=None)
+        uk_time = london.localize(naive_time)
         utc_time = uk_time.astimezone(pytz.utc)
 
         success = add_fixture(
@@ -63,8 +75,8 @@ def create_fixture():
         return jsonify({'message': 'Invalid kickoff_time format'}), 400
 
 
-# --- List fixtures ---
 @admin_bp.route('/fixtures', methods=['GET'])
+@role_required('admin')
 def list_fixtures():
     try:
         fixtures = get_all_fixtures()
@@ -78,33 +90,33 @@ def list_fixtures():
         return jsonify({'message': 'Failed to fetch fixtures'}), 500
 
 
-# --- Reset season ---
 @admin_bp.route('/reset-season', methods=['POST'])
+@role_required('admin')
 def reset():
     if reset_season():
         return jsonify({'message': 'Season reset successfully'}), 200
     return jsonify({'message': 'Failed to reset season'}), 500
 
 
-# --- Get approved users ---
 @admin_bp.route('/approved-users', methods=['GET'])
+@role_required('admin')
 def approved_users():
     users = get_approved_users()
     return jsonify(users), 200
 
 
-# --- Delete user ---
 @admin_bp.route('/delete-user/<username>', methods=['DELETE'])
+@role_required('admin')
 def delete(username):
-    clean_username = username.strip()   # ✅ sanitize
+    clean_username = username.strip()
     success = delete_user(clean_username)
     if success:
         return jsonify({'message': f'{clean_username} deleted successfully'}), 200
     return jsonify({'message': 'Failed to delete user'}), 400
 
 
-# --- Post fixture result ---
 @admin_bp.route('/results', methods=['POST'])
+@role_required('admin')
 def post_result():
     data = request.json
     fixture_id = data.get('fixture_id')

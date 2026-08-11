@@ -6,7 +6,6 @@ def get_latest_completed_matchday():
 
     cursor.execute("SELECT MAX(matchday) FROM fixtures WHERE result IS NOT NULL")
     row = cursor.fetchone()
-    conn.close()
 
     return row["max"] if row and row["max"] else None
 

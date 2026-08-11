@@ -52,7 +52,12 @@ def login():
 
     if user:
         if user['is_approved']:
-            token = generate_token(username, user.get('is_admin', False))
+            token = generate_token(
+                user_id=user['id'],
+                username=username,
+                is_admin=user.get('is_admin', False),
+                is_treasurer=user.get('is_treasurer', False),
+            )
             return jsonify({
                 "token": token,
                 "user": {

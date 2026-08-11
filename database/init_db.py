@@ -30,7 +30,8 @@ def init_db():
             full_name TEXT,
             team TEXT,
             is_approved INTEGER DEFAULT 0,
-            is_admin INTEGER DEFAULT 0
+            is_admin INTEGER DEFAULT 0,
+            is_treasurer INTEGER DEFAULT 0
         )
     ''')
 
@@ -109,6 +110,13 @@ def init_db():
             last_updated TEXT,
             FOREIGN KEY (user_id) REFERENCES users(id)
         )
+    ''')
+
+    # MIGRATION: add is_treasurer to pre-existing users tables that were
+    # created before this column existed (CREATE TABLE IF NOT EXISTS above
+    # won't add it to an already-existing table).
+    cursor.execute('''
+        ALTER TABLE users ADD COLUMN IF NOT EXISTS is_treasurer INTEGER DEFAULT 0
     ''')
 
     conn.commit()

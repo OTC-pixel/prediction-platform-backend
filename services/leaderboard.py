@@ -15,7 +15,12 @@ def get_leaderboard():
         WHERE result IS NOT NULL
     """)
     latest_row = cursor.fetchone()
-    current_matchday = latest_row.get("current_matchday", 0) if latest_row else 0
+    # NOTE: dict.get(key, default) only falls back when the key is absent --
+    # here the key is always present, just with SQL NULL (Python None) when
+    # no fixture has a result yet (e.g. right after a season reset). `or`
+    # correctly falls back on None; the previous code crashed with a
+    # None >= int TypeError in that exact state.
+    current_matchday = latest_row.get("current_matchday") or 0 if latest_row else 0
 
     # Determine if the competition is in run-in phase (after matchday 30)
     run_in = current_matchday >= 30
@@ -40,8 +45,6 @@ def get_leaderboard():
             "team": row.get("team", ""),
             "points": row.get("points", 0)
         })
-
-    conn.close()
 
     return {
         "current_matchday": current_matchday,

@@ -1,7 +1,5 @@
 import os
-import sys
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from services.db_direct import get_direct_connection as get_db
+from db import get_db
 
 import requests
 from datetime import datetime, timedelta, timezone
@@ -23,7 +21,6 @@ def get_last_kickoff_time():
     cursor = conn.cursor()
     cursor.execute("SELECT MAX(kickoff_time) FROM fixtures")
     row = cursor.fetchone()
-    conn.close()
 
     last_time = row[0] if row and row[0] else None
     return datetime.fromisoformat(last_time) if last_time else None
@@ -128,7 +125,6 @@ def initialize_matchday_tracker():
             (now_str,)
         )
         conn.commit()
-    conn.close()
 
 
 def get_next_matchday():
@@ -145,7 +141,6 @@ def get_next_matchday():
 
     cursor.execute("UPDATE matchday_tracker SET current_matchday = %s WHERE id = 1", (next_matchday,))
     conn.commit()
-    conn.close()
     print(f"Matchday set to: {next_matchday}")
     return next_matchday
 
@@ -166,7 +161,6 @@ def save_to_db(fixtures, matchday):
             VALUES (%s, %s, %s, %s, %s)
         ''', (fixture_id, matchday, fixture["home"], fixture["away"], fixture["kickoff"]))
     conn.commit()
-    conn.close()
     print(f"Saved {len(fixtures)} fixtures to matchday {matchday}.")
 
 
@@ -211,7 +205,6 @@ def auto_update_if_due():
         cursor = conn.cursor()
         cursor.execute("UPDATE matchday_tracker SET last_updated = %s WHERE id = 1", (now_str,))
         conn.commit()
-        conn.close()
         print(f"Matchday {matchday} updated successfully.")
     else:
         print("No fixtures found. Update aborted.")

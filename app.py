@@ -1,12 +1,12 @@
 import os
 import sys
+import logging
 from flask import Flask, request, jsonify
 from flask_cors import CORS
 from dotenv import load_dotenv
 
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
-# Import your blueprints
 from routes.auth import auth_bp
 from routes.admin import admin_bp
 from routes.predictions import predictions_bp
@@ -18,16 +18,21 @@ from scheduler import start_scheduler
 
 load_dotenv()
 
+logging.basicConfig(level=os.getenv("LOG_LEVEL", "INFO"))
+logger = logging.getLogger(__name__)
+
 app = Flask(__name__)
 
 # ------------------------------
-# CORS Configuration
+# CORS Configuration -- origins come from .env, not hardcoded, so the
+# same code deploys to any environment (dev/staging/prod) without edits.
 # ------------------------------
 FRONTEND_ORIGINS = [
-    "https://predict-eplt6.netlify.app"
+    o.strip() for o in os.environ.get("FRONTEND_ORIGINS", "").split(",") if o.strip()
 ]
+if not FRONTEND_ORIGINS:
+    raise RuntimeError("FRONTEND_ORIGINS is not set in .env (comma-separated list)")
 
-# CORS configuration
 CORS(
     app,
     origins=FRONTEND_ORIGINS,
@@ -36,21 +41,19 @@ CORS(
     methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"]
 )
 
-# ------------------------------
-# ADDED: Preflight request handler for DELETE methods
-# ------------------------------
+
 @app.before_request
 def handle_preflight():
     if request.method == "OPTIONS":
         response = jsonify()
         origin = request.headers.get('Origin')
-        
         if origin in FRONTEND_ORIGINS:
             response.headers.add('Access-Control-Allow-Origin', origin)
         response.headers.add('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With')
         response.headers.add('Access-Control-Allow-Methods', 'GET, POST, PUT, PATCH, DELETE, OPTIONS')
         response.headers.add('Access-Control-Allow-Credentials', 'true')
         return response
+
 
 # ------------------------------
 # Health Check Endpoints
@@ -59,23 +62,22 @@ def handle_preflight():
 def ping():
     return jsonify({"status": "alive", "message": "Server is up!"})
 
+
 @app.route("/api/health")
 def health_check():
     return jsonify({
-        "status": "healthy", 
-        "frontend_origins": FRONTEND_ORIGINS,
+        "status": "healthy",
         "cors_enabled": True
     })
 
-# ------------------------------
-# Root Endpoint
-# ------------------------------
+
 @app.route("/")
 def home():
     return jsonify({
-        "message": "Football Prediction Platform API",
-        "version": "1.0.0"
+        "message": "Football Ladder API",
+        "version": "2.0.0"
     })
+
 
 # ------------------------------
 # Blueprints Registration
@@ -88,36 +90,31 @@ app.register_blueprint(leaderboard_bp, url_prefix="/api/leaderboard")
 app.register_blueprint(results_bp, url_prefix="/api/results")
 
 # ------------------------------
-# Scheduler
+# Scheduler -- jobs run in-process inside an app context (see scheduler.py)
 # ------------------------------
-start_scheduler()
+start_scheduler(app)
 
-# ------------------------------
-# Error Handlers
-# ------------------------------
+
 @app.errorhandler(404)
 def not_found(error):
     return jsonify({"error": "Endpoint not found", "status": 404}), 404
+
 
 @app.errorhandler(500)
 def internal_error(error):
     return jsonify({"error": "Internal server error", "status": 500}), 500
 
-# ------------------------------
-# Teardown
-# ------------------------------
+
 @app.teardown_appcontext
 def teardown_db(exception):
     close_db()
 
-# ------------------------------
-# Main Execution
-# ------------------------------
+
 if __name__ == "__main__":
     from waitress import serve
     port = int(os.environ.get("PORT", 5000))
-    
-    print("⚽ Server starting with complete CORS configuration")
-    print(f"🌐 Allowed origins: {FRONTEND_ORIGINS}")
-    
+
+    logger.info("Server starting")
+    logger.info("Allowed origins: %s", FRONTEND_ORIGINS)
+
     serve(app, host="0.0.0.0", port=port)

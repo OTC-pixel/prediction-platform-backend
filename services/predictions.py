@@ -64,7 +64,6 @@ def get_latest_completed_matchday():
     finally:
         try:
             cur.close()
-            db.close()
         except Exception:
             pass
 
@@ -169,7 +168,6 @@ def submit_matchday_predictions(user_id, predictions):
     finally:
         try:
             cur.close()
-            db.close()
         except Exception:
             pass
 
@@ -228,7 +226,6 @@ def get_user_predictions(user_id):
     finally:
         try:
             cur.close()
-            db.close()
         except Exception:
             pass
 
@@ -260,7 +257,6 @@ def get_predictions_by_matchday(matchday):
     finally:
         try:
             cur.close()
-            db.close()
         except Exception:
             pass
 
@@ -280,7 +276,6 @@ def update_fixture_result(fixture_id, actual_result):
     finally:
         try:
             cur.close()
-            db.close()
         except Exception:
             pass
 
@@ -333,7 +328,6 @@ def evaluate_predictions(fixture_id):
     finally:
         try:
             cur.close()
-            db.close()
         except Exception:
             pass
 
@@ -443,7 +437,6 @@ def process_and_evaluate_latest_matchday():
     finally:
         try:
             cur.close()
-            db.close()
         except Exception:
             pass
 
@@ -480,7 +473,6 @@ def get_final_round_results():
     finally:
         try:
             cur.close()
-            db.close()
         except Exception:
             pass
 
@@ -547,7 +539,6 @@ def get_user_matchday_performance(user_id, matchday):
     finally:
         try:
             cur.close()
-            db.close()
         except Exception:
             pass
 
@@ -643,7 +634,6 @@ def get_previous_matchday_performance(user_id):
     finally:
         try:
             cur.close()
-            db.close()
         except Exception:
             pass
 
@@ -669,7 +659,6 @@ def get_latest_completed_user_predictions(user_id):
     finally:
         try:
             cur.close()
-            db.close()
         except Exception:
             pass
 

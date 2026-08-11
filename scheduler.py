@@ -1,47 +1,44 @@
+"""
+Background job scheduling.
+
+Previously each job spawned a full Python subprocess on a timer -- paying
+interpreter startup cost every run, breaking normal exception handling
+(errors only showed up as opaque subprocess stderr), and duplicating
+load_dotenv()/DB setup on every single invocation. Jobs now run in-process
+as plain function calls, each wrapped in an explicit app context so they
+share the same connection pool and config as the rest of the app.
+"""
+
 from apscheduler.schedulers.background import BackgroundScheduler
 import atexit
-import subprocess
-import os
-import sys
+import logging
 
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+logger = logging.getLogger(__name__)
 
-def fetch_fixtures_job():
-    print("📅 Running scheduled fetch_fixtures.py...")
-    try:
-        script_path = os.path.join(BASE_DIR, 'services', 'fetch_fixtures.py')
-        result = subprocess.run([sys.executable, script_path], capture_output=True, text=True, check=True)
-        print("✅ Fixtures fetch completed.")
-        print(result.stdout)
-    except subprocess.CalledProcessError as e:
-        print(f"❌ Failed to fetch fixtures:\n{e.stderr}")
 
-def collect_and_process_results_job():
-    print("🔁 Running scheduled collect_results.py...")
-    try:
-        script_path = os.path.join(BASE_DIR, 'services', 'collect_results.py')
-        result = subprocess.run([sys.executable, script_path], capture_output=True, text=True, check=True)
-        print("✅ Results collection and processing completed.")
-        print(result.stdout)
-    except subprocess.CalledProcessError as e:
-        print(f"❌ Failed to collect results:\n{e.stderr}")
+def _run_fetch_fixtures(app):
+    with app.app_context():
+        try:
+            from services.fetch_fixtures import auto_update_if_due
+            auto_update_if_due()
+        except Exception:
+            logger.exception("Fixture fetch job failed")
 
-def run_runner_job():
-    print("🚀 Running scheduled runner.py...")
-    try:
-        script_path = os.path.join(BASE_DIR, 'runner.py')
-        result = subprocess.run([sys.executable, script_path], capture_output=True, text=True, check=True)
-        print("✅ Runner processing completed.")
-        print(result.stdout)
-    except subprocess.CalledProcessError as e:
-        print(f"❌ Failed to run runner.py:\n{e.stderr}")
 
-def start_scheduler():
+def _run_collect_and_evaluate_results(app):
+    with app.app_context():
+        try:
+            from services.collect_results import run_once
+            run_once()
+        except Exception:
+            logger.exception("Results collection job failed")
+
+
+def start_scheduler(app):
     scheduler = BackgroundScheduler()
-    scheduler.add_job(fetch_fixtures_job, trigger="interval", hours=2)
-    scheduler.add_job(collect_and_process_results_job, trigger="interval", hours=1)
-    scheduler.add_job(run_runner_job, trigger="interval", hours=1)
-    
+    scheduler.add_job(lambda: _run_fetch_fixtures(app), trigger="interval", hours=2)
+    scheduler.add_job(lambda: _run_collect_and_evaluate_results(app), trigger="interval", hours=1)
+
     scheduler.start()
-    print("⏰ Scheduler started: Fixtures every 2h, Results every 1h, Refreshing every 1h.")
+    logger.info("Scheduler started: fixtures every 2h, results+evaluation every 1h.")
     atexit.register(lambda: scheduler.shutdown())

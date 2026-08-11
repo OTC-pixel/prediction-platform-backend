@@ -9,7 +9,6 @@ def get_current_matchday_fixtures():
     row = cursor.fetchone()
 
     if not row or 'current_matchday' not in row:
-        conn.close()
         return None
 
     current_matchday = row['current_matchday']
@@ -22,8 +21,6 @@ def get_current_matchday_fixtures():
         ORDER BY kickoff_time ASC
     """, (current_matchday,))
     fixture_rows = cursor.fetchall()
-
-    conn.close()
 
     fixtures = []
     for row in fixture_rows:
