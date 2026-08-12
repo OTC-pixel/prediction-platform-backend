@@ -97,6 +97,7 @@ start_scheduler(app)
 
 @app.errorhandler(404)
 def not_found(error):
+    logger.warning("404: %s %s", request.method, request.path)
     return jsonify({"error": "Endpoint not found", "status": 404}), 404
 
 
