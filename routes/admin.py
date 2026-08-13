@@ -4,6 +4,7 @@ from services.admin import (
     add_fixture, get_all_fixtures, get_approved_users,
     delete_user, update_fixture_result, reset_season
 )
+from services.treasurer import set_treasurer
 from utils.token import role_required
 from dateutil import parser
 import pytz
@@ -113,6 +114,19 @@ def delete(username):
     if success:
         return jsonify({'message': f'{clean_username} deleted successfully'}), 200
     return jsonify({'message': 'Failed to delete user'}), 400
+
+
+@admin_bp.route('/set-treasurer/<username>', methods=['POST'])
+@role_required('admin')
+def set_treasurer_route(username):
+    data = request.get_json(silent=True) or {}
+    is_treasurer = bool(data.get('is_treasurer', True))
+    clean_username = username.strip()
+    success = set_treasurer(clean_username, is_treasurer)
+    if success:
+        verb = 'granted' if is_treasurer else 'revoked'
+        return jsonify({'message': f'Treasurer role {verb} for {clean_username}'}), 200
+    return jsonify({'message': 'User not found'}), 400
 
 
 @admin_bp.route('/results', methods=['POST'])

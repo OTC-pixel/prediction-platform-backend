@@ -4,6 +4,7 @@ import re
 import traceback
 from datetime import datetime, timedelta, timezone
 from db import get_db
+from services.treasurer import get_user_eligibility
 
 ISO_Z_RE = re.compile(r"Z$")
 SCORE_RE = re.compile(r"^\d{1,2}-\d{1,2}$")
@@ -75,6 +76,13 @@ def submit_matchday_predictions(user_id, predictions):
     """
     if not predictions:
         return False, "No predictions provided"
+
+    # Commitment-fee gating (rebuild plan Section 3): unpaid + past
+    # deadline + no active Treasurer exception blocks submission entirely,
+    # enforced here server-side so it can't be bypassed from the client.
+    eligibility = get_user_eligibility(user_id)
+    if not eligibility["eligible"]:
+        return False, eligibility["reason"]
 
     try:
         fixture_ids = [int(p["fixture_id"]) for p in predictions]

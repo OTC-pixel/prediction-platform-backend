@@ -119,6 +119,45 @@ def init_db():
         ALTER TABLE users ADD COLUMN IF NOT EXISTS is_treasurer INTEGER DEFAULT 0
     ''')
 
+    # ------------------------------------------------------------------
+    # Phase 2 -- commitment fee & prediction eligibility
+    # ------------------------------------------------------------------
+
+    # Only one row is `active` at a time. Setting a new fee config
+    # deactivates the previous one instead of deleting it, so past
+    # seasons' fee history survives (matches the append-only-ledger
+    # discipline used for the money features generally).
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS commitment_fee_config (
+            id SERIAL PRIMARY KEY,
+            amount NUMERIC(12, 2) NOT NULL,
+            deadline TIMESTAMPTZ NOT NULL,
+            deadline_matchday INTEGER,
+            set_by INTEGER REFERENCES users(id),
+            created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+            active BOOLEAN NOT NULL DEFAULT TRUE
+        )
+    ''')
+
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS commitment_fee_status (
+            user_id INTEGER PRIMARY KEY REFERENCES users(id),
+            has_paid BOOLEAN NOT NULL DEFAULT FALSE,
+            confirmed_by INTEGER REFERENCES users(id),
+            confirmed_at TIMESTAMPTZ
+        )
+    ''')
+
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS commitment_fee_exceptions (
+            id SERIAL PRIMARY KEY,
+            user_id INTEGER NOT NULL REFERENCES users(id),
+            granted_for_matchday INTEGER NOT NULL,
+            granted_by INTEGER REFERENCES users(id),
+            granted_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        )
+    ''')
+
     conn.commit()
     conn.close()
 

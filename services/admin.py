@@ -157,9 +157,15 @@ def reset_season():
 def get_approved_users():
     conn = get_db()
     with conn.cursor() as cur:
-        cur.execute("SELECT id, username, full_name, team FROM users WHERE is_approved = 1")
+        cur.execute("SELECT id, username, full_name, team, is_treasurer FROM users WHERE is_approved = 1")
         rows = cur.fetchall()
-        return [{'id': r['id'], 'username': r['username'], 'full_name': r['full_name'], 'team': r['team']} for r in rows]
+        return [{
+            'id': r['id'],
+            'username': r['username'],
+            'fullName': r['full_name'],
+            'team': r['team'],
+            'is_treasurer': bool(r['is_treasurer']),
+        } for r in rows]
 
 
 def delete_user(username):
