@@ -115,8 +115,8 @@ def try_fetch_fixtures(start_offset, range_days):
 def initialize_matchday_tracker():
     conn = get_db()
     cursor = conn.cursor()
-    cursor.execute("SELECT COUNT(*) FROM matchday_tracker WHERE id = 1")
-    count = cursor.fetchone()[0]
+    cursor.execute("SELECT COUNT(*) AS count FROM matchday_tracker WHERE id = 1")
+    count = cursor.fetchone()["count"]
 
     if count == 0:
         now_str = datetime.now(timezone.utc).isoformat()
