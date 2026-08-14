@@ -63,7 +63,8 @@ def login():
                 "user": {
                     "id": user['id'],
                     "username": username,
-                    "role": "admin" if user.get('is_admin') else "user"
+                    "role": "admin" if user.get('is_admin') else "user",
+                    "is_treasurer": bool(user.get('is_treasurer'))
                 }
             }), 200
         else:

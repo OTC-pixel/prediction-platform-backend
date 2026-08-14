@@ -34,11 +34,21 @@ def _run_collect_and_evaluate_results(app):
             logger.exception("Results collection job failed")
 
 
+def _run_savings_week_rollover(app):
+    with app.app_context():
+        try:
+            from services.savings import process_week_rollover
+            process_week_rollover()
+        except Exception:
+            logger.exception("Savings week-rollover job failed")
+
+
 def start_scheduler(app):
     scheduler = BackgroundScheduler()
     scheduler.add_job(lambda: _run_fetch_fixtures(app), trigger="interval", hours=2)
     scheduler.add_job(lambda: _run_collect_and_evaluate_results(app), trigger="interval", hours=1)
+    scheduler.add_job(lambda: _run_savings_week_rollover(app), trigger="interval", hours=24)
 
     scheduler.start()
-    logger.info("Scheduler started: fixtures every 2h, results+evaluation every 1h.")
+    logger.info("Scheduler started: fixtures every 2h, results+evaluation every 1h, savings rollover every 24h.")
     atexit.register(lambda: scheduler.shutdown())

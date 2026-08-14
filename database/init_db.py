@@ -119,6 +119,133 @@ def init_db():
         ALTER TABLE users ADD COLUMN IF NOT EXISTS is_treasurer INTEGER DEFAULT 0
     ''')
 
+    # ------------------------------------------------------------------
+    # Phase 2 -- commitment fee & prediction eligibility
+    # ------------------------------------------------------------------
+
+    # Only one row is `active` at a time. Setting a new fee config
+    # deactivates the previous one instead of deleting it, so past
+    # seasons' fee history survives (matches the append-only-ledger
+    # discipline used for the money features generally).
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS commitment_fee_config (
+            id SERIAL PRIMARY KEY,
+            amount NUMERIC(12, 2) NOT NULL,
+            deadline TIMESTAMPTZ NOT NULL,
+            deadline_matchday INTEGER,
+            set_by INTEGER REFERENCES users(id),
+            created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+            active BOOLEAN NOT NULL DEFAULT TRUE
+        )
+    ''')
+
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS commitment_fee_status (
+            user_id INTEGER PRIMARY KEY REFERENCES users(id),
+            has_paid BOOLEAN NOT NULL DEFAULT FALSE,
+            confirmed_by INTEGER REFERENCES users(id),
+            confirmed_at TIMESTAMPTZ
+        )
+    ''')
+
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS commitment_fee_exceptions (
+            id SERIAL PRIMARY KEY,
+            user_id INTEGER NOT NULL REFERENCES users(id),
+            granted_for_matchday INTEGER NOT NULL,
+            granted_by INTEGER REFERENCES users(id),
+            granted_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        )
+    ''')
+
+    # ------------------------------------------------------------------
+    # Phase 3 -- savings & surcharge
+    # ------------------------------------------------------------------
+
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS savings_config (
+            id SERIAL PRIMARY KEY,
+            weekly_minimum NUMERIC(12, 2) NOT NULL,
+            surcharge_amount NUMERIC(12, 2) NOT NULL DEFAULT 500,
+            set_by INTEGER REFERENCES users(id),
+            created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+            active BOOLEAN NOT NULL DEFAULT TRUE
+        )
+    ''')
+
+    # Append-only: a confirmed row is never edited. A correction is a new
+    # row with reverses_transaction_id pointing back at the original.
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS savings_transactions (
+            id SERIAL PRIMARY KEY,
+            user_id INTEGER NOT NULL REFERENCES users(id),
+            amount NUMERIC(12, 2) NOT NULL,
+            week_start DATE NOT NULL,
+            idempotency_key TEXT UNIQUE NOT NULL,
+            submitted_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+            status TEXT NOT NULL DEFAULT 'pending',
+            confirmed_by INTEGER REFERENCES users(id),
+            confirmed_at TIMESTAMPTZ,
+            allocated_savings NUMERIC(12, 2) NOT NULL DEFAULT 0,
+            allocated_surcharge NUMERIC(12, 2) NOT NULL DEFAULT 0,
+            prioritize_surcharge BOOLEAN NOT NULL DEFAULT FALSE,
+            reverses_transaction_id INTEGER REFERENCES savings_transactions(id)
+        )
+    ''')
+
+    # One surcharge charge per user per missed week. Whether it's cleared
+    # is derived from surcharge_clearances, never stored as a flag here.
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS surcharge_ledger (
+            id SERIAL PRIMARY KEY,
+            user_id INTEGER NOT NULL REFERENCES users(id),
+            week_start DATE NOT NULL,
+            amount NUMERIC(12, 2) NOT NULL,
+            created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+            UNIQUE(user_id, week_start)
+        )
+    ''')
+
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS surcharge_clearances (
+            id SERIAL PRIMARY KEY,
+            surcharge_id INTEGER NOT NULL REFERENCES surcharge_ledger(id),
+            savings_transaction_id INTEGER NOT NULL REFERENCES savings_transactions(id),
+            amount NUMERIC(12, 2) NOT NULL,
+            created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        )
+    ''')
+
+    # Generic exception-request workflow, scoped to surcharge-priority
+    # requests for Phase 3 (commitment-fee exceptions are still granted
+    # directly by the Treasurer per Phase 2 -- see services/savings.py
+    # module docstring for why these weren't unified).
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS exception_requests (
+            id SERIAL PRIMARY KEY,
+            user_id INTEGER NOT NULL REFERENCES users(id),
+            type TEXT NOT NULL,
+            context TEXT,
+            status TEXT NOT NULL DEFAULT 'pending',
+            decided_by INTEGER REFERENCES users(id),
+            decided_at TIMESTAMPTZ,
+            created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        )
+    ''')
+
+    # Singleton tracker so weekly rollover never re-evaluates a week twice.
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS savings_tracker (
+            id INTEGER PRIMARY KEY CHECK (id = 1),
+            last_processed_week DATE
+        )
+    ''')
+    cursor.execute('''
+        INSERT INTO savings_tracker (id, last_processed_week)
+        VALUES (1, NULL)
+        ON CONFLICT (id) DO NOTHING
+    ''')
+
     conn.commit()
     conn.close()
 
