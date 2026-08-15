@@ -16,6 +16,7 @@ from routes.results import results_bp
 from routes.treasurer import treasurer_bp
 from routes.savings import savings_bp
 from routes.loans import loans_bp
+from routes.season import season_bp
 from db import close_db
 from scheduler import start_scheduler
 
@@ -94,6 +95,7 @@ app.register_blueprint(results_bp, url_prefix="/api/results")
 app.register_blueprint(treasurer_bp, url_prefix="/api/treasurer")
 app.register_blueprint(savings_bp, url_prefix="/api/savings")
 app.register_blueprint(loans_bp, url_prefix="/api/loans")
+app.register_blueprint(season_bp, url_prefix="/api/season")
 
 # ------------------------------
 # Scheduler -- jobs run in-process inside an app context (see scheduler.py)

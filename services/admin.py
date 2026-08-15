@@ -6,6 +6,7 @@ except ImportError:
     from pytz import timezone as ZoneInfo
 
 from db import get_db
+from services.audit import log_action
 
 UK_TIMEZONE = ZoneInfo("Europe/London")
 UTC_TIMEZONE = ZoneInfo("UTC")
@@ -120,38 +121,6 @@ def get_all_fixtures():
         })
 
     return {'fixtures': fixtures}
-
-
-def reset_season():
-    """
-    Competition reset only: predictions/fixtures/results/leaderboard.
-    Financial tables (savings, surcharge, loans) are intentionally handled
-    by a separate season-close flow (Phase 5) with its own mandatory
-    export step -- never silently wiped from here.
-    """
-    now_str = datetime.now(timezone.utc).isoformat()
-    conn = get_db()
-    try:
-        with conn.cursor() as cur:
-            cur.execute("DELETE FROM predictions")
-            cur.execute("DELETE FROM fixtures")
-            cur.execute("DELETE FROM results")
-            cur.execute("DELETE FROM matchday_results")
-            cur.execute("DELETE FROM leaderboard")
-            cur.execute("""
-                UPDATE matchday_tracker
-                SET current_matchday = 0, last_completed_matchday = 0, last_updated = %s
-                WHERE id = 1
-            """, (now_str,))
-            # Strip treasurer flag from everyone -- admin flag is untouched.
-            cur.execute("UPDATE users SET is_treasurer = 0")
-            conn.commit()
-            print("Season reset complete.")
-            return True
-    except Exception as e:
-        conn.rollback()
-        print(f"Reset failed: {e}")
-        return False
 
 
 def get_approved_users():

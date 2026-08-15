@@ -281,16 +281,6 @@ def init_db():
     ''')
 
     cursor.execute('''
-        CREATE TABLE IF NOT EXISTS loan_endorsements (
-            id SERIAL PRIMARY KEY,
-            loan_id INTEGER NOT NULL REFERENCES loans(id),
-            endorser_user_id INTEGER NOT NULL REFERENCES users(id),
-            endorsed_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-            UNIQUE(loan_id, endorser_user_id)
-        )
-    ''')
-
-    cursor.execute('''
         CREATE TABLE IF NOT EXISTS loan_repayments (
             id SERIAL PRIMARY KEY,
             loan_id INTEGER NOT NULL REFERENCES loans(id),
@@ -300,6 +290,39 @@ def init_db():
             status TEXT NOT NULL DEFAULT 'pending',
             confirmed_by INTEGER REFERENCES users(id),
             confirmed_at TIMESTAMPTZ
+        )
+    ''')
+
+    # ------------------------------------------------------------------
+    # Phase 6 -- admin-visible audit log (broader than the public
+    # money-rule audit log from Phase 2/3: every admin/treasurer action)
+    # ------------------------------------------------------------------
+
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS audit_log (
+            id SERIAL PRIMARY KEY,
+            actor_id INTEGER REFERENCES users(id),
+            action TEXT NOT NULL,
+            target_type TEXT,
+            target_id TEXT,
+            metadata TEXT,
+            created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        )
+    ''')
+
+    # ------------------------------------------------------------------
+    # Phase 5 -- mandatory season-close export, stored in the DB (not on
+    # disk) since Render's filesystem is ephemeral and doesn't survive a
+    # redeploy/restart. This doubles as the Phase 6 season-end report --
+    # one export covers both, since they're the same artifact.
+    # ------------------------------------------------------------------
+
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS season_exports (
+            id SERIAL PRIMARY KEY,
+            created_by INTEGER REFERENCES users(id),
+            created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+            csv_content TEXT NOT NULL
         )
     ''')
 

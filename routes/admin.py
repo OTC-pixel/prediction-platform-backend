@@ -2,9 +2,10 @@ from flask import Blueprint, request, jsonify
 from services.admin import (
     get_pending_users, approve_user, reject_user,
     add_fixture, get_all_fixtures, get_approved_users,
-    delete_user, update_fixture_result, reset_season
+    delete_user, update_fixture_result
 )
 from services.treasurer import set_treasurer
+from services.audit import log_action
 from utils.token import role_required
 from dateutil import parser
 import pytz
@@ -30,6 +31,7 @@ def approve(username):
     clean_username = username.strip()
     success = approve_user(clean_username)
     if success:
+        log_action(request.user.get('user_id'), 'approve_user', 'user', clean_username)
         return jsonify({'message': f'{clean_username} approved'}), 200
     return jsonify({'message': 'Approval failed'}), 400
 
@@ -40,6 +42,7 @@ def reject(username):
     clean_username = username.strip()
     success = reject_user(clean_username)
     if success:
+        log_action(request.user.get('user_id'), 'reject_user', 'user', clean_username)
         return jsonify({'message': f'{clean_username} rejected'}), 200
     return jsonify({'message': 'Rejection failed'}), 400
 
@@ -91,14 +94,6 @@ def list_fixtures():
         return jsonify({'message': 'Failed to fetch fixtures'}), 500
 
 
-@admin_bp.route('/reset-season', methods=['POST'])
-@role_required('admin')
-def reset():
-    if reset_season():
-        return jsonify({'message': 'Season reset successfully'}), 200
-    return jsonify({'message': 'Failed to reset season'}), 500
-
-
 @admin_bp.route('/approved-users', methods=['GET'])
 @role_required('admin')
 def approved_users():
@@ -112,6 +107,7 @@ def delete(username):
     clean_username = username.strip()
     success = delete_user(clean_username)
     if success:
+        log_action(request.user.get('user_id'), 'delete_user', 'user', clean_username)
         return jsonify({'message': f'{clean_username} deleted successfully'}), 200
     return jsonify({'message': 'Failed to delete user'}), 400
 
@@ -125,6 +121,7 @@ def set_treasurer_route(username):
     success = set_treasurer(clean_username, is_treasurer)
     if success:
         verb = 'granted' if is_treasurer else 'revoked'
+        log_action(request.user.get('user_id'), f'treasurer_{verb}', 'user', clean_username)
         return jsonify({'message': f'Treasurer role {verb} for {clean_username}'}), 200
     return jsonify({'message': 'User not found'}), 400
 

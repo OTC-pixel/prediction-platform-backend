@@ -7,6 +7,7 @@ from services.loans import (
     get_user_loans, get_all_loans_for_treasurer, get_interest_collected
 )
 from services.savings import get_surcharge_pool
+from services.audit import log_action
 from utils.token import token_required, role_required
 
 loans_bp = Blueprint('loans', __name__)
@@ -112,6 +113,7 @@ def get_pending_disbursement():
 def post_approve(loan_id):
     ok, msg = approve_loan(loan_id, request.user.get('user_id'))
     if ok:
+        log_action(request.user.get('user_id'), 'loan_approve', 'loan', loan_id)
         return jsonify({'message': 'Loan approved'}), 200
     return jsonify({'message': msg}), 400
 
@@ -121,6 +123,7 @@ def post_approve(loan_id):
 def post_reject(loan_id):
     ok, msg = reject_loan(loan_id, request.user.get('user_id'))
     if ok:
+        log_action(request.user.get('user_id'), 'loan_reject', 'loan', loan_id)
         return jsonify({'message': 'Loan rejected'}), 200
     return jsonify({'message': msg}), 400
 
@@ -130,6 +133,7 @@ def post_reject(loan_id):
 def post_disburse(loan_id):
     ok, msg = disburse_loan(loan_id, request.user.get('user_id'))
     if ok:
+        log_action(request.user.get('user_id'), 'loan_disburse', 'loan', loan_id)
         return jsonify({'message': 'Loan disbursed'}), 200
     return jsonify({'message': msg}), 400
 
