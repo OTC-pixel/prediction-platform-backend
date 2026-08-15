@@ -246,6 +246,63 @@ def init_db():
         ON CONFLICT (id) DO NOTHING
     ''')
 
+    # ------------------------------------------------------------------
+    # Phase 4 -- loans
+    # ------------------------------------------------------------------
+
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS loan_config (
+            id SERIAL PRIMARY KEY,
+            interest_rate NUMERIC(5, 2) NOT NULL,
+            set_by INTEGER REFERENCES users(id),
+            created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+            active BOOLEAN NOT NULL DEFAULT TRUE
+        )
+    ''')
+
+    # interest_rate is NULL until disbursement -- it's locked in from
+    # whatever loan_config is active at that moment, not at request time.
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS loans (
+            id SERIAL PRIMARY KEY,
+            user_id INTEGER NOT NULL REFERENCES users(id),
+            principal NUMERIC(12, 2) NOT NULL,
+            interest_rate NUMERIC(5, 2),
+            status TEXT NOT NULL DEFAULT 'pending',
+            requested_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+            approved_by INTEGER REFERENCES users(id),
+            approved_at TIMESTAMPTZ,
+            disbursed_by INTEGER REFERENCES users(id),
+            disbursed_at TIMESTAMPTZ,
+            rejected_by INTEGER REFERENCES users(id),
+            rejected_at TIMESTAMPTZ,
+            closed_at TIMESTAMPTZ
+        )
+    ''')
+
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS loan_endorsements (
+            id SERIAL PRIMARY KEY,
+            loan_id INTEGER NOT NULL REFERENCES loans(id),
+            endorser_user_id INTEGER NOT NULL REFERENCES users(id),
+            endorsed_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+            UNIQUE(loan_id, endorser_user_id)
+        )
+    ''')
+
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS loan_repayments (
+            id SERIAL PRIMARY KEY,
+            loan_id INTEGER NOT NULL REFERENCES loans(id),
+            amount NUMERIC(12, 2) NOT NULL,
+            idempotency_key TEXT UNIQUE NOT NULL,
+            submitted_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+            status TEXT NOT NULL DEFAULT 'pending',
+            confirmed_by INTEGER REFERENCES users(id),
+            confirmed_at TIMESTAMPTZ
+        )
+    ''')
+
     conn.commit()
     conn.close()
 
