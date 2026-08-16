@@ -4,7 +4,7 @@ from services.admin import (
     add_fixture, get_all_fixtures, get_approved_users,
     delete_user, update_fixture_result
 )
-from services.treasurer import set_treasurer
+from services.treasurer import set_treasurer, set_secretary
 from services.audit import log_action
 from utils.token import role_required
 from dateutil import parser
@@ -123,6 +123,20 @@ def set_treasurer_route(username):
         verb = 'granted' if is_treasurer else 'revoked'
         log_action(request.user.get('user_id'), f'treasurer_{verb}', 'user', clean_username)
         return jsonify({'message': f'Treasurer role {verb} for {clean_username}'}), 200
+    return jsonify({'message': 'User not found'}), 400
+
+
+@admin_bp.route('/set-secretary/<username>', methods=['POST'])
+@role_required('admin')
+def set_secretary_route(username):
+    data = request.get_json(silent=True) or {}
+    is_secretary = bool(data.get('is_secretary', True))
+    clean_username = username.strip()
+    success = set_secretary(clean_username, is_secretary)
+    if success:
+        verb = 'granted' if is_secretary else 'revoked'
+        log_action(request.user.get('user_id'), f'secretary_{verb}', 'user', clean_username)
+        return jsonify({'message': f'Secretary role {verb} for {clean_username}'}), 200
     return jsonify({'message': 'User not found'}), 400
 
 

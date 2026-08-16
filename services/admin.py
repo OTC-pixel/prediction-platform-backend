@@ -126,7 +126,7 @@ def get_all_fixtures():
 def get_approved_users():
     conn = get_db()
     with conn.cursor() as cur:
-        cur.execute("SELECT id, username, full_name, team, is_treasurer FROM users WHERE is_approved = 1")
+        cur.execute("SELECT id, username, full_name, team, is_treasurer, is_secretary FROM users WHERE is_approved = 1")
         rows = cur.fetchall()
         return [{
             'id': r['id'],
@@ -134,6 +134,7 @@ def get_approved_users():
             'fullName': r['full_name'],
             'team': r['team'],
             'is_treasurer': bool(r['is_treasurer']),
+            'is_secretary': bool(r['is_secretary']),
         } for r in rows]
 
 

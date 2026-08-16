@@ -3,7 +3,8 @@ from services.savings import (
     set_savings_config, get_active_savings_config, submit_transaction,
     confirm_transaction, reject_transaction, get_pending_transactions,
     process_week_rollover, request_exception, decide_exception_request,
-    get_exception_requests, get_user_ledger, get_surcharge_pool
+    get_exception_requests, get_user_ledger, get_surcharge_pool,
+    get_total_savings_balance, get_members_savings_overview
 )
 from utils.token import token_required, role_required
 
@@ -65,7 +66,7 @@ def get_my_ledger():
 
 
 @savings_bp.route('/transactions/pending', methods=['GET'])
-@role_required('admin', 'treasurer')
+@role_required('admin', 'treasurer', 'secretary')
 def get_pending():
     rows = get_pending_transactions()
     return jsonify([
@@ -116,6 +117,44 @@ def get_pool():
     return jsonify(get_surcharge_pool()), 200
 
 
+# ---------- Treasurer / Secretary cash-reconciliation dashboard ----------
+
+@savings_bp.route('/members-overview', methods=['GET'])
+@role_required('admin', 'treasurer', 'secretary')
+def get_members_overview():
+    rows = get_members_savings_overview()
+    return jsonify([
+        {
+            'user_id': r['user_id'],
+            'username': r['username'],
+            'full_name': r['full_name'],
+            'savings_balance': str(r['savings_balance']),
+            'surcharge_owed': str(r['surcharge_owed']),
+        }
+        for r in rows
+    ]), 200
+
+
+@savings_bp.route('/members/<int:user_id>/ledger', methods=['GET'])
+@role_required('admin', 'treasurer', 'secretary')
+def get_member_ledger(user_id):
+    ledger = get_user_ledger(user_id)
+    return jsonify(ledger), 200
+
+
+@savings_bp.route('/wallet-summary', methods=['GET'])
+@role_required('admin', 'treasurer', 'secretary')
+def get_wallet_summary():
+    total_savings = get_total_savings_balance()
+    pool = get_surcharge_pool()
+    return jsonify({
+        'total_savings_balance': str(total_savings),
+        'surcharge_total_collected': str(pool['total_collected']),
+        'surcharge_total_owed': str(pool['total_owed']),
+        'surcharge_total_expected': str(pool['total_charged']),
+    }), 200
+
+
 @savings_bp.route('/exception-requests', methods=['POST'])
 @token_required
 def post_exception_request():
@@ -127,7 +166,7 @@ def post_exception_request():
 
 
 @savings_bp.route('/exception-requests', methods=['GET'])
-@role_required('admin', 'treasurer')
+@role_required('admin', 'treasurer', 'secretary')
 def get_exceptions():
     status = request.args.get('status')
     rows = get_exception_requests(status)

@@ -70,6 +70,18 @@ def set_treasurer(username, is_treasurer):
         return cur.rowcount > 0
 
 
+def set_secretary(username, is_secretary):
+    username = username.strip()
+    conn = get_db()
+    with conn.cursor() as cur:
+        cur.execute(
+            "UPDATE users SET is_secretary = %s WHERE username = %s",
+            (1 if is_secretary else 0, username),
+        )
+        conn.commit()
+        return cur.rowcount > 0
+
+
 # ---------- Fee config ----------
 
 def set_fee_config(amount, deadline_iso, set_by_user_id):

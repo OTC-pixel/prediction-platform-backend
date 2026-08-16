@@ -95,14 +95,14 @@ def post_endorse(loan_id):
 
 
 @loans_bp.route('/pending-approval', methods=['GET'])
-@role_required('treasurer')
+@role_required('treasurer', 'secretary')
 def get_pending_approval():
     rows = get_loans_pending_approval()
     return jsonify([_serialize_loan(r) for r in rows]), 200
 
 
 @loans_bp.route('/pending-disbursement', methods=['GET'])
-@role_required('treasurer')
+@role_required('treasurer', 'secretary')
 def get_pending_disbursement():
     rows = get_loans_pending_disbursement()
     return jsonify([_serialize_loan(r) for r in rows]), 200
@@ -153,7 +153,7 @@ def post_repayment(loan_id):
 
 
 @loans_bp.route('/repayments/pending', methods=['GET'])
-@role_required('treasurer')
+@role_required('treasurer', 'secretary')
 def get_repayments_pending():
     rows = get_pending_repayments()
     return jsonify([
@@ -211,7 +211,7 @@ def get_mine():
 
 
 @loans_bp.route('/all', methods=['GET'])
-@role_required('treasurer')
+@role_required('treasurer', 'secretary')
 def get_all():
     rows = get_all_loans_for_treasurer()
     return jsonify([_serialize_loan(r) for r in rows]), 200

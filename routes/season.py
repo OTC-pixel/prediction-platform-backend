@@ -24,7 +24,7 @@ def post_close():
 
 
 @season_bp.route('/exports', methods=['GET'])
-@role_required('admin')
+@role_required('admin', 'secretary')
 def get_exports():
     rows = list_exports()
     return jsonify([
@@ -38,7 +38,7 @@ def get_exports():
 
 
 @season_bp.route('/exports/<int:export_id>/download', methods=['GET'])
-@role_required('admin')
+@role_required('admin', 'secretary')
 def download_export(export_id):
     row = get_export(export_id)
     if not row:
@@ -52,7 +52,7 @@ def download_export(export_id):
 
 
 @season_bp.route('/audit-log', methods=['GET'])
-@role_required('admin')
+@role_required('admin', 'secretary')
 def get_audit():
     rows = get_audit_log()
     return jsonify([

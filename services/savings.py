@@ -496,6 +496,56 @@ def get_user_ledger(user_id):
         }
 
 
+def get_total_savings_balance():
+    """Grand total across every member's confirmed savings -- the figure
+    that should tally against physical/mobile cash on hand, growing over
+    time as more gets confirmed. Never stored, always derived."""
+    conn = get_db()
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT COALESCE(SUM(allocated_savings), 0) AS total FROM savings_transactions WHERE status = 'confirmed'"
+        )
+        return cur.fetchone()["total"]
+
+
+def get_members_savings_overview():
+    """One row per approved member: current savings balance and total
+    surcharge still owed -- the collapsed-row view for the Treasurer/
+    Secretary cash-reconciliation roster, before drilling into any one
+    member's full history."""
+    conn = get_db()
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT id, username, full_name FROM users WHERE is_approved = 1 ORDER BY username"
+        )
+        users = cur.fetchall()
+        result = []
+        for u in users:
+            cur.execute(
+                "SELECT COALESCE(SUM(allocated_savings), 0) AS balance FROM savings_transactions WHERE user_id = %s AND status = 'confirmed'",
+                (u["id"],),
+            )
+            balance = cur.fetchone()["balance"]
+
+            cur.execute("SELECT id, amount FROM surcharge_ledger WHERE user_id = %s", (u["id"],))
+            owed = 0
+            for s in cur.fetchall():
+                cur.execute(
+                    "SELECT COALESCE(SUM(amount), 0) AS cleared FROM surcharge_clearances WHERE surcharge_id = %s",
+                    (s["id"],),
+                )
+                owed += s["amount"] - cur.fetchone()["cleared"]
+
+            result.append({
+                "user_id": u["id"],
+                "username": u["username"],
+                "full_name": u["full_name"],
+                "savings_balance": balance,
+                "surcharge_owed": owed,
+            })
+        return result
+
+
 def get_surcharge_pool():
     """Public view: who owes what (and since when), plus group totals.
     Deliberately public per the plan -- shared-fund transparency."""

@@ -57,6 +57,7 @@ def login():
                 username=username,
                 is_admin=user.get('is_admin', False),
                 is_treasurer=user.get('is_treasurer', False),
+                is_secretary=user.get('is_secretary', False),
             )
             return jsonify({
                 "token": token,
@@ -64,7 +65,8 @@ def login():
                     "id": user['id'],
                     "username": username,
                     "role": "admin" if user.get('is_admin') else "user",
-                    "is_treasurer": bool(user.get('is_treasurer'))
+                    "is_treasurer": bool(user.get('is_treasurer')),
+                    "is_secretary": bool(user.get('is_secretary'))
                 }
             }), 200
         else:

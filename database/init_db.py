@@ -118,6 +118,9 @@ def init_db():
     cursor.execute('''
         ALTER TABLE users ADD COLUMN IF NOT EXISTS is_treasurer INTEGER DEFAULT 0
     ''')
+    cursor.execute('''
+        ALTER TABLE users ADD COLUMN IF NOT EXISTS is_secretary INTEGER DEFAULT 0
+    ''')
 
     # ------------------------------------------------------------------
     # Phase 2 -- commitment fee & prediction eligibility

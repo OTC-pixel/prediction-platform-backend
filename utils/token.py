@@ -14,12 +14,13 @@ if not SECRET_KEY:
 TOKEN_TTL_HOURS = int(os.getenv("JWT_TTL_HOURS", "2"))
 
 
-def generate_token(user_id, username, is_admin=False, is_treasurer=False):
+def generate_token(user_id, username, is_admin=False, is_treasurer=False, is_secretary=False):
     payload = {
         "user_id": user_id,
         "username": username,
         "is_admin": bool(is_admin),
         "is_treasurer": bool(is_treasurer),
+        "is_secretary": bool(is_secretary),
         "exp": datetime.datetime.utcnow() + datetime.timedelta(hours=TOKEN_TTL_HOURS),
     }
     return jwt.encode(payload, SECRET_KEY, algorithm="HS256")

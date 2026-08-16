@@ -27,7 +27,7 @@ def verify_user(username, password):
     cursor = conn.cursor()
 
     cursor.execute(
-        "SELECT id, password, is_approved, is_admin, is_treasurer FROM users WHERE username = %s",
+        "SELECT id, password, is_approved, is_admin, is_treasurer, is_secretary FROM users WHERE username = %s",
         (username,)
     )
     row = cursor.fetchone()
@@ -44,4 +44,5 @@ def verify_user(username, password):
         'is_approved': row['is_approved'],
         'is_admin': row['is_admin'],
         'is_treasurer': row.get('is_treasurer', False),
+        'is_secretary': row.get('is_secretary', False),
     }

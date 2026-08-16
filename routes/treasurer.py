@@ -22,7 +22,7 @@ def _to_utc_iso(dt_str):
 
 
 @treasurer_bp.route('/config', methods=['GET'])
-@role_required('admin', 'treasurer')
+@role_required('admin', 'treasurer', 'secretary')
 def get_config():
     config = get_active_fee_config()
     if not config:
@@ -63,7 +63,7 @@ def post_config():
 
 
 @treasurer_bp.route('/payment-status', methods=['GET'])
-@role_required('admin', 'treasurer')
+@role_required('admin', 'treasurer', 'secretary')
 def payment_status():
     rows = get_payment_status_list()
     return jsonify([
