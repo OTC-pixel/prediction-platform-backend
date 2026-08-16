@@ -19,10 +19,10 @@ BIG_EIGHT_ORDER = [
 def get_last_kickoff_time():
     conn = get_db()
     cursor = conn.cursor()
-    cursor.execute("SELECT MAX(kickoff_time) FROM fixtures")
+    cursor.execute("SELECT MAX(kickoff_time) AS max_kickoff FROM fixtures")
     row = cursor.fetchone()
 
-    last_time = row[0] if row and row[0] else None
+    last_time = row['max_kickoff'] if row and row['max_kickoff'] else None
     return datetime.fromisoformat(last_time) if last_time else None
 
 
@@ -134,7 +134,7 @@ def get_next_matchday():
 
     cursor.execute("SELECT current_matchday FROM matchday_tracker WHERE id = 1")
     row = cursor.fetchone()
-    current = row[0] if row else 0
+    current = row['current_matchday'] if row else 0
     next_matchday = current + 1
     if next_matchday > 38:
         next_matchday = 1
