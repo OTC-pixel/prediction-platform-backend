@@ -45,7 +45,7 @@ def register():
 @auth_bp.route('/login', methods=['POST'])
 def login():
     data = request.get_json()
-    username = data.get('username')
+    username = (data.get('username') or '').strip()
     password = data.get('password')
 
     user = verify_user(username, password)
