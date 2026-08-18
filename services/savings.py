@@ -7,40 +7,39 @@ Weekly cycle: ISO weeks, Monday 00:00 -> next Monday 00:00. A transaction's
 `week_start` is the Monday of the ISO week it was submitted in. No manual
 week creation -- weeks just exist as date ranges.
 
-Allocation on confirm (the "FIFO surcharge clearing" rule): two modes,
-selected by the Treasurer per-confirmation via `prioritize_surcharge`:
+Allocation on confirm (the "FIFO surcharge clearing" rule): surcharge is
+now cleared AUTOMATICALLY, off the top of every confirmed transaction --
+no exception, no approval, no treasurer choice involved. Oldest surcharge
+first (FIFO); whatever's left after every outstanding surcharge is
+cleared counts toward that week's minimum as normal.
 
-  - Default (prioritize_surcharge=False): minimum-first. The amount tops
-    up this week's confirmed total toward the weekly minimum first; only
-    the true surplus beyond the minimum clears outstanding surcharges,
-    oldest first (FIFO). This path never needs an exception, because it
-    never takes money away from the current week to pay off a debt -- it
-    can only help.
-  - Override (prioritize_surcharge=True): surcharge-first. The whole
-    amount goes toward clearing the oldest outstanding surcharge(s)
-    before anything counts toward this week's minimum -- which can leave
-    the user still short for the week. Per the plan, this deliberately
-    weaker-for-the-week path requires an approved, not-yet-used
-    `exception_requests` row of type 'surcharge_priority' for this user;
-    confirming with this flag consumes that approval.
-
-This is the concrete reading of "the treasurer cannot confirm it as fully
-clearing... it either applies the whole surplus toward the surcharge and
-leaves the user still short for the week, or the exception mechanism is
-used" -- those are exactly the two modes above.
+This replaces an earlier "minimum-first by default, surcharge-first only
+via an approved exception" design. That design only ever cleared a
+surcharge when a member happened to send MORE than the weekly minimum in
+one transaction -- in practice, members almost always send close to
+exactly the minimum, so surplus rarely occurred and surcharges piled up
+uncollected indefinitely. Automatic-first fixes that, at a real
+trade-off worth stating plainly: if a member's transaction is only large
+enough to cover that week's minimum, some of it now goes to surcharge
+instead, which can leave that same week short and risk a NEW surcharge
+at the next rollover -- a possible snowball for a member who only ever
+sends the bare minimum. There's no floor/cap protecting against that
+here; if that trade-off turns out to be a problem in practice, the fix
+is a cap on how much of a single transaction surcharge-clearing can
+claim before minimum-protection kicks back in.
 
 Balances (savings balance, surcharge owed, surcharge cleared) are never
 stored -- every read recomputes them from the transaction/clearance
 history, per the plan's "derived, not stored" discipline.
 
-Note on exception_requests scope: the plan's sketch (Section 9) lists this
-table with `type[commitment_fee/surcharge]` as if one workflow covered
-both. Phase 2 was already built and shipped with the Treasurer granting
-commitment-fee exceptions directly (no user request step) before this
-table existed. Rather than rebuild shipped Phase 2 behavior, this table
-is scoped to `type = 'surcharge_priority'` only for now -- a real
-inconsistency with "one exception-approval pattern reused everywhere",
-worth reconciling in a later pass, not silently glossed over.
+Note on the `exception_requests` table: it was originally built to gate
+a surcharge-priority override that required explicit Treasurer approval.
+That override no longer exists as of the automatic-surcharge-clearing
+change above -- nothing in this codebase writes to that table anymore.
+The table itself is left in place (unused) rather than dropped, since
+removing schema is more consequential than removing dead code paths;
+`services/season_close.py` still clears it during a season wipe, which
+is a harmless no-op against an always-empty table.
 """
 from datetime import datetime, timezone, timedelta, date
 from db import get_db
@@ -152,25 +151,7 @@ def _outstanding_surcharges(cur, user_id):
     return result
 
 
-def _consume_surcharge_priority_exception(cur, user_id):
-    cur.execute(
-        """
-        SELECT id FROM exception_requests
-        WHERE user_id = %s AND type = 'surcharge_priority' AND status = 'approved'
-        ORDER BY decided_at ASC LIMIT 1
-        """,
-        (user_id,),
-    )
-    row = cur.fetchone()
-    if not row:
-        return False
-    cur.execute(
-        "UPDATE exception_requests SET status = 'used' WHERE id = %s", (row["id"],)
-    )
-    return True
-
-
-def confirm_transaction(transaction_id, confirmed_by_user_id, prioritize_surcharge=False):
+def confirm_transaction(transaction_id, confirmed_by_user_id):
     conn = get_db()
     with conn.cursor() as cur:
         cur.execute("SELECT * FROM savings_transactions WHERE id = %s", (transaction_id,))
@@ -180,52 +161,39 @@ def confirm_transaction(transaction_id, confirmed_by_user_id, prioritize_surchar
         if txn["status"] != "pending":
             return False, f"Transaction is already {txn['status']}"
 
-        config = _get_active_savings_config(cur)
-        weekly_minimum = config["weekly_minimum"] if config else 0
         amount = txn["amount"]
         user_id = txn["user_id"]
 
-        if prioritize_surcharge:
-            if not _consume_surcharge_priority_exception(cur, user_id):
-                conn.commit()
-                return False, "No approved surcharge-priority exception for this user"
-            to_savings = 0
-            surplus = amount
-        else:
-            week_total_before = _confirmed_week_total(cur, user_id, txn["week_start"])
-            remaining_to_minimum = max(0, weekly_minimum - week_total_before)
-            to_savings = min(amount, remaining_to_minimum)
-            surplus = amount - to_savings
-
+        remaining = amount
         surcharge_allocated = 0
-        if surplus > 0:
-            for surcharge_row, remaining in _outstanding_surcharges(cur, user_id):
-                if surplus <= 0:
-                    break
-                clear_amount = min(surplus, remaining)
-                cur.execute(
-                    """
-                    INSERT INTO surcharge_clearances (surcharge_id, savings_transaction_id, amount)
-                    VALUES (%s, %s, %s)
-                    """,
-                    (surcharge_row["id"], transaction_id, clear_amount),
-                )
-                surplus -= clear_amount
-                surcharge_allocated += clear_amount
-            # Anything left after every surcharge is cleared is bonus
-            # savings principal beyond the minimum.
-            if surplus > 0:
-                to_savings += surplus
-                surplus = 0
+
+        # Surcharge first, automatically, oldest owed first -- see the
+        # module docstring for why this changed from the earlier
+        # minimum-first default.
+        for surcharge_row, owed in _outstanding_surcharges(cur, user_id):
+            if remaining <= 0:
+                break
+            clear_amount = min(remaining, owed)
+            cur.execute(
+                """
+                INSERT INTO surcharge_clearances (surcharge_id, savings_transaction_id, amount)
+                VALUES (%s, %s, %s)
+                """,
+                (surcharge_row["id"], transaction_id, clear_amount),
+            )
+            remaining -= clear_amount
+            surcharge_allocated += clear_amount
+
+        to_savings = remaining
 
         cur.execute(
             """
             UPDATE savings_transactions
             SET status = 'confirmed', confirmed_by = %s, confirmed_at = NOW(),
-                allocated_savings = %s, allocated_surcharge = %s, prioritize_surcharge = %s
+                allocated_savings = %s, allocated_surcharge = %s
             WHERE id = %s
             """,
-            (confirmed_by_user_id, to_savings, surcharge_allocated, prioritize_surcharge, transaction_id),
+            (confirmed_by_user_id, to_savings, surcharge_allocated, transaction_id),
         )
         conn.commit()
         return True, None
@@ -326,69 +294,7 @@ def process_week_rollover():
             weeks_processed += 1
 
 
-# ---------- Exception requests ----------
-
-def request_exception(user_id, exception_type, context):
-    conn = get_db()
-    with conn.cursor() as cur:
-        cur.execute(
-            """
-            INSERT INTO exception_requests (user_id, type, context, status)
-            VALUES (%s, %s, %s, 'pending')
-            RETURNING *
-            """,
-            (user_id, exception_type, context),
-        )
-        row = cur.fetchone()
-        conn.commit()
-        return row
-
-
-def decide_exception_request(request_id, approve, decided_by_user_id):
-    conn = get_db()
-    with conn.cursor() as cur:
-        cur.execute(
-            "SELECT status FROM exception_requests WHERE id = %s", (request_id,)
-        )
-        row = cur.fetchone()
-        if not row:
-            return False, "Request not found"
-        if row["status"] != "pending":
-            return False, f"Request is already {row['status']}"
-        cur.execute(
-            """
-            UPDATE exception_requests
-            SET status = %s, decided_by = %s, decided_at = NOW()
-            WHERE id = %s
-            """,
-            ("approved" if approve else "rejected", decided_by_user_id, request_id),
-        )
-        conn.commit()
-        return True, None
-
-
-def get_exception_requests(status=None):
-    conn = get_db()
-    with conn.cursor() as cur:
-        if status:
-            cur.execute(
-                """
-                SELECT e.*, u.username FROM exception_requests e
-                JOIN users u ON u.id = e.user_id
-                WHERE e.status = %s ORDER BY e.created_at DESC
-                """,
-                (status,),
-            )
-        else:
-            cur.execute(
-                """
-                SELECT e.*, u.username FROM exception_requests e
-                JOIN users u ON u.id = e.user_id
-                ORDER BY e.created_at DESC
-                """
-            )
-        return cur.fetchall()
-
+# ---------- Config history & audit ----------
 
 def get_savings_config_history():
     conn = get_db()
@@ -399,24 +305,6 @@ def get_savings_config_history():
             FROM savings_config c
             LEFT JOIN users u ON u.id = c.set_by
             ORDER BY c.created_at DESC
-            """
-        )
-        return cur.fetchall()
-
-
-def get_decided_surcharge_exceptions():
-    """Approved/rejected/used surcharge-priority requests -- the decision
-    is the auditable event, not the raw request."""
-    conn = get_db()
-    with conn.cursor() as cur:
-        cur.execute(
-            """
-            SELECT e.id, u.username, e.status, e.decided_at, d.username AS decided_by
-            FROM exception_requests e
-            JOIN users u ON u.id = e.user_id
-            LEFT JOIN users d ON d.id = e.decided_by
-            WHERE e.type = 'surcharge_priority' AND e.decided_at IS NOT NULL
-            ORDER BY e.decided_at DESC
             """
         )
         return cur.fetchall()

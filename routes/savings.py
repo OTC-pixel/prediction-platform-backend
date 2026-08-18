@@ -2,8 +2,7 @@ from flask import Blueprint, request, jsonify
 from services.savings import (
     set_savings_config, get_active_savings_config, submit_transaction,
     confirm_transaction, reject_transaction, get_pending_transactions,
-    process_week_rollover, request_exception, decide_exception_request,
-    get_exception_requests, get_user_ledger, get_surcharge_pool,
+    process_week_rollover, get_user_ledger, get_surcharge_pool,
     get_total_savings_balance, get_members_savings_overview
 )
 from utils.token import token_required, role_required
@@ -85,10 +84,8 @@ def get_pending():
 @savings_bp.route('/transactions/<int:transaction_id>/confirm', methods=['POST'])
 @role_required('treasurer')
 def post_confirm(transaction_id):
-    data = request.get_json(silent=True) or {}
-    prioritize_surcharge = bool(data.get('prioritize_surcharge', False))
     confirmed_by = request.user.get('user_id')
-    ok, msg = confirm_transaction(transaction_id, confirmed_by, prioritize_surcharge)
+    ok, msg = confirm_transaction(transaction_id, confirmed_by)
     if ok:
         return jsonify({'message': 'Transaction confirmed'}), 200
     return jsonify({'message': msg}), 400
@@ -153,43 +150,3 @@ def get_wallet_summary():
         'surcharge_total_owed': str(pool['total_owed']),
         'surcharge_total_expected': str(pool['total_charged']),
     }), 200
-
-
-@savings_bp.route('/exception-requests', methods=['POST'])
-@token_required
-def post_exception_request():
-    data = request.get_json(silent=True) or {}
-    context = (data.get('context') or '').strip()
-    user_id = request.user.get('user_id')
-    row = request_exception(user_id, 'surcharge_priority', context)
-    return jsonify({'message': 'Exception requested', 'id': row['id']}), 201
-
-
-@savings_bp.route('/exception-requests', methods=['GET'])
-@role_required('admin', 'treasurer', 'secretary')
-def get_exceptions():
-    status = request.args.get('status')
-    rows = get_exception_requests(status)
-    return jsonify([
-        {
-            'id': r['id'],
-            'username': r['username'],
-            'type': r['type'],
-            'context': r['context'],
-            'status': r['status'],
-            'created_at': r['created_at'].isoformat(),
-        }
-        for r in rows
-    ]), 200
-
-
-@savings_bp.route('/exception-requests/<int:request_id>/decide', methods=['POST'])
-@role_required('treasurer')
-def post_decide(request_id):
-    data = request.get_json(silent=True) or {}
-    approve = bool(data.get('approve'))
-    decided_by = request.user.get('user_id')
-    ok, msg = decide_exception_request(request_id, approve, decided_by)
-    if ok:
-        return jsonify({'message': 'Decision recorded'}), 200
-    return jsonify({'message': msg}), 400

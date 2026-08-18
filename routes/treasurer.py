@@ -4,7 +4,7 @@ from services.treasurer import (
     mark_paid, grant_exception, get_exceptions_log, get_user_eligibility,
     get_fee_config_history
 )
-from services.savings import get_savings_config_history, get_decided_surcharge_exceptions
+from services.savings import get_savings_config_history
 from utils.token import token_required, role_required
 from dateutil import parser
 import pytz
@@ -122,7 +122,6 @@ def get_audit_log():
     config_rows = get_fee_config_history()
     exception_rows = get_exceptions_log()
     savings_config_rows = get_savings_config_history()
-    surcharge_decision_rows = get_decided_surcharge_exceptions()
 
     events = []
     for r in config_rows:
@@ -148,14 +147,6 @@ def get_audit_log():
             'surcharge_amount': str(r['surcharge_amount']),
             'set_by': r['set_by'],
             'at': r['created_at'].isoformat(),
-        })
-    for r in surcharge_decision_rows:
-        events.append({
-            'type': 'surcharge_priority_decision',
-            'username': r['username'],
-            'status': r['status'],
-            'decided_by': r['decided_by'],
-            'at': r['decided_at'].isoformat(),
         })
 
     events.sort(key=lambda e: e['at'], reverse=True)
