@@ -37,8 +37,24 @@ def _generate_export_csv(cur):
     )
     users = cur.fetchall()
 
-    cur.execute("SELECT user_id, rank, points FROM leaderboard")
-    leaderboard_by_user = {r["user_id"]: r for r in cur.fetchall()}
+    # There is no stored "rank" column -- services/leaderboard.py computes
+    # rank purely as array position after this exact ordering (points
+    # DESC, username ASC as the tie-break). Reproduced here so the
+    # exported rank always matches what the live leaderboard showed.
+    cur.execute(
+        """
+        SELECT l.user_id, l.points, u.username
+        FROM leaderboard l
+        JOIN users u ON u.id = l.user_id
+        WHERE u.is_approved = 1
+        ORDER BY l.points DESC, u.username ASC
+        """
+    )
+    ranked = cur.fetchall()
+    leaderboard_by_user = {
+        row["user_id"]: {"rank": i + 1, "points": row["points"]}
+        for i, row in enumerate(ranked)
+    }
 
     output = io.StringIO()
     writer = csv.writer(output)
