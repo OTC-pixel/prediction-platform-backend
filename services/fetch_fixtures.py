@@ -1,5 +1,4 @@
 import os
-import logging
 from db import get_db
 
 import requests
@@ -7,8 +6,6 @@ from datetime import datetime, timedelta, timezone
 from dotenv import load_dotenv
 
 load_dotenv()
-
-logger = logging.getLogger(__name__)
 
 BBC_API_BASE = "https://web-cdn.api.bbci.co.uk/wc-poll-data/container/sport-data-scores-fixtures"
 
@@ -22,10 +19,10 @@ BIG_EIGHT_ORDER = [
 def get_last_kickoff_time():
     conn = get_db()
     cursor = conn.cursor()
-    cursor.execute("SELECT MAX(kickoff_time) AS max_kickoff FROM fixtures")
+    cursor.execute("SELECT MAX(kickoff_time) FROM fixtures")
     row = cursor.fetchone()
 
-    last_time = row['max_kickoff'] if row and row['max_kickoff'] else None
+    last_time = row[0] if row and row[0] else None
     return datetime.fromisoformat(last_time) if last_time else None
 
 
@@ -50,7 +47,7 @@ def fetch_bbc_fixtures_for_day(date_str):
                     events.extend(sec.get("events", []))
         return events
     except Exception as e:
-        logger.warning("JSON parse error: %s", e)
+        print("JSON parse error:", e)
         return []
 
 
@@ -137,20 +134,20 @@ def get_next_matchday():
 
     cursor.execute("SELECT current_matchday FROM matchday_tracker WHERE id = 1")
     row = cursor.fetchone()
-    current = row['current_matchday'] if row else 0
+    current = row[0] if row else 0
     next_matchday = current + 1
     if next_matchday > 38:
         next_matchday = 1
 
     cursor.execute("UPDATE matchday_tracker SET current_matchday = %s WHERE id = 1", (next_matchday,))
     conn.commit()
-    logger.info("Matchday set to: %s", next_matchday)
+    print(f"Matchday set to: {next_matchday}")
     return next_matchday
 
 
 def save_to_db(fixtures, matchday):
     if not fixtures:
-        logger.info("No fixtures to save.")
+        print("No fixtures to save.")
         return
 
     conn = get_db()
@@ -164,7 +161,7 @@ def save_to_db(fixtures, matchday):
             VALUES (%s, %s, %s, %s, %s)
         ''', (fixture_id, matchday, fixture["home"], fixture["away"], fixture["kickoff"]))
     conn.commit()
-    logger.info("Saved %d fixtures to matchday %s.", len(fixtures), matchday)
+    print(f"Saved {len(fixtures)} fixtures to matchday {matchday}.")
 
 
 def collect_flexible_matchday_fixtures():
@@ -194,10 +191,10 @@ def auto_update_if_due():
         now = datetime.now(timezone.utc)
         if now < last_kickoff + timedelta(hours=14):  
             remaining = (last_kickoff + timedelta(hours=14)) - now
-            logger.info("%s remaining before fixture update allowed.", remaining)
+            print(f"{remaining} remaining before update allowed.")
             return
 
-    logger.info("Attempting to fetch next matchday fixtures...")
+    print("Attempting to fetch next matchday fixtures...")
     fixtures = collect_flexible_matchday_fixtures()
 
     if fixtures:
@@ -208,9 +205,9 @@ def auto_update_if_due():
         cursor = conn.cursor()
         cursor.execute("UPDATE matchday_tracker SET last_updated = %s WHERE id = 1", (now_str,))
         conn.commit()
-        logger.info("Matchday %s updated successfully.", matchday)
+        print(f"Matchday {matchday} updated successfully.")
     else:
-        logger.info("No fixtures found. Update aborted.")
+        print("No fixtures found. Update aborted.")
 
 
 if __name__ == "__main__":

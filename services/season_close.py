@@ -11,14 +11,17 @@ not written to disk -- Render's filesystem is ephemeral and doesn't
 survive a redeploy or restart, so a file on disk would not actually be
 durable.
 
-Scope of the wipe: competition data (predictions, fixtures, results,
-leaderboard) and financial HISTORY (savings transactions, surcharge
-ledger, loans and their endorsements/repayments, commitment-fee status
-and exceptions). Rule/config tables (commitment_fee_config,
-savings_config, loan_config) are deliberately left alone -- they're
-rules for the next season to inherit or the Treasurer to re-set, not
-history to be wiped. Users are always preserved; only the treasurer flag
-is stripped (admin is untouched), matching Phase 0's existing behavior.
+Scope of the wipe: everything except the users table itself. Competition
+data (predictions, fixtures, results, leaderboard), financial HISTORY
+(savings transactions, surcharge ledger, loans and their endorsements/
+repayments, commitment-fee status and exceptions), rule/config tables
+(commitment_fee_config, savings_config, loan_config), and the admin
+audit log are all cleared. The one deliberate exception: season_exports
+(the CSV backups this same close generates) is never touched -- wiping
+it would destroy the archival record in the same action that just
+created it, defeating the entire point of exporting before resetting.
+Users are always preserved; only the treasurer/secretary flags are
+stripped (admin is untouched), matching Phase 0's existing behavior.
 """
 from datetime import datetime, timezone
 import csv
@@ -152,7 +155,7 @@ def close_season(triggered_by_user_id):
                 (now_str,),
             )
 
-            # Financial history (not config/rules -- see module docstring)
+            # Financial history (append-only ledgers/transactions)
             cur.execute("DELETE FROM surcharge_clearances")
             cur.execute("DELETE FROM surcharge_ledger")
             cur.execute("DELETE FROM savings_transactions")
@@ -164,8 +167,19 @@ def close_season(triggered_by_user_id):
             cur.execute("DELETE FROM commitment_fee_exceptions")
             cur.execute("UPDATE savings_tracker SET last_processed_week = NULL WHERE id = 1")
 
-            # Users preserved; only the treasurer flag is stripped (admin untouched)
-            cur.execute("UPDATE users SET is_treasurer = 0")
+            # Rule/config tables -- next season starts with nothing
+            # configured, same as a brand-new deployment would.
+            cur.execute("DELETE FROM commitment_fee_config")
+            cur.execute("DELETE FROM savings_config")
+            cur.execute("DELETE FROM loan_config")
+
+            # Admin/treasurer action history. NOTE: season_exports is
+            # deliberately NOT cleared here -- see module docstring.
+            cur.execute("DELETE FROM audit_log")
+
+            # Users preserved; only the treasurer/secretary flags are
+            # stripped (admin untouched) -- roles get reassigned each season.
+            cur.execute("UPDATE users SET is_treasurer = 0, is_secretary = 0")
 
             conn.commit()
     except Exception as e:

@@ -1,7 +1,6 @@
 import os
 import sys
 import json
-import logging
 from datetime import datetime, timezone, timedelta
 import requests
 import psycopg2
@@ -9,8 +8,6 @@ import psycopg2.extras
 
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 from db import get_db
-
-logger = logging.getLogger(__name__)
 from services.predictions import process_and_evaluate_latest_matchday
 
 BBC_API = "https://web-cdn.api.bbci.co.uk/wc-poll-data/container/sport-data-scores-fixtures"
@@ -69,7 +66,7 @@ def fetch_results_for_matchday(matchday):
         kickoff = fixture['kickoff_time']
 
         date_str = kickoff[:10]  # YYYY-MM-DD
-        logger.info("Fetching results for %s vs %s on %s...", home, away, date_str)
+        print(f" Fetching results for {home} vs {away} on {date_str}...")
 
         params = {
             "selectedStartDate": date_str,
@@ -81,7 +78,7 @@ def fetch_results_for_matchday(matchday):
         try:
             response = requests.get(BBC_API, params=params)
             if response.status_code != 200:
-                logger.warning("Failed request for %s: %s", date_str, response.status_code)
+                print(f" Failed request for {date_str}: {response.status_code}")
                 continue
 
             data = response.json()
@@ -121,7 +118,7 @@ def fetch_results_for_matchday(matchday):
                             human_results.append(f"{home} {score_home} - {score_away} {away}")
                             break
         except Exception as e:
-            logger.warning("Error fetching results for %s: %s", date_str, e)
+            print(f" Error fetching results for {date_str}: {e}")
 
     return results_json, human_results
 
@@ -151,7 +148,7 @@ def store_results(matchday, results_json, human_results):
                 cur.execute("UPDATE predictions SET final_result = %s WHERE fixture_id = %s", (result_str, fixture_id))
 
         conn.commit()
-        logger.info("Stored results and updated records for matchday %s.", matchday)
+        print(f" Stored results and updated records for matchday {matchday}.")
 
 
 def run_once():
@@ -164,17 +161,17 @@ def run_once():
     """
     matchday = get_latest_completed_matchday()
     if matchday is None:
-        logger.info("No completed matchday found or already processed.")
+        print("No completed matchday found or already processed.")
         return
-    logger.info("Fetching results for matchday %s...", matchday)
+    print(f"Fetching results for matchday {matchday}...")
     results_json, human_results = fetch_results_for_matchday(matchday)
     if results_json:
         store_results(matchday, results_json, human_results)
-        logger.info("Triggering prediction evaluation...")
+        print("Triggering prediction evaluation...")
         process_and_evaluate_latest_matchday()
-        logger.info("Prediction evaluation complete.")
+        print("Prediction evaluation complete.")
     else:
-        logger.info("No valid results found for this matchday.")
+        print("No valid results found for this matchday.")
 
 
 if __name__ == "__main__":
