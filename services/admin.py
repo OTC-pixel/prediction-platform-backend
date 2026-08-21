@@ -31,24 +31,7 @@ def approve_user(username):
 
 
 def reject_user(username):
-    username = username.strip()
-    conn = get_db()
-    try:
-        with conn.cursor() as cur:
-            cur.execute("SELECT id FROM users WHERE username = %s", (username,))
-            user = cur.fetchone()
-            if not user:
-                return False
-            user_id = user['id']
-
-            cur.execute("DELETE FROM predictions WHERE user_id = %s", (user_id,))
-            cur.execute("DELETE FROM users WHERE username = %s", (username,))
-            conn.commit()
-            return True
-    except Exception as e:
-        conn.rollback()
-        print(f"Error rejecting user {username}: {e}")
-        return False
+    return _erase_user(username, error_prefix="rejecting")
 
 
 # ----- Fixture Management -----
@@ -139,6 +122,27 @@ def get_approved_users():
 
 
 def delete_user(username):
+    return _erase_user(username, error_prefix="deleting")
+
+
+def _erase_user(username, error_prefix="deleting"):
+    """
+    Fully erase a user and everything that belongs to them. Shared by
+    delete_user (approved users) and reject_user (pending users) so both
+    stay in sync as the schema grows.
+
+    Two different kinds of FK reference user.id in this schema, and they
+    need different treatment:
+
+    1. The user's OWN records (their predictions, savings, loans, etc.)
+       -- these are hard-deleted.
+    2. Columns where this user acted as admin/treasurer on SOMEONE ELSE'S
+       record (confirmed_by, approved_by, granted_by, decided_by, set_by,
+       actor_id, disbursed_by, rejected_by, created_by) -- these rows are
+       NOT this user's data and must be preserved for the other user's
+       financial history / the audit trail. We just null out the
+       reference instead of deleting the row.
+    """
     username = username.strip()
     conn = get_db()
     try:
@@ -149,13 +153,60 @@ def delete_user(username):
                 return False
             user_id = user['id']
 
+            # --- 1. Delete the user's own data (children before parents) ---
+
+            # savings_transactions/surcharge_ledger rows this user owns may
+            # be referenced by surcharge_clearances; clear those first.
+            cur.execute("""
+                DELETE FROM surcharge_clearances
+                WHERE savings_transaction_id IN (
+                    SELECT id FROM savings_transactions WHERE user_id = %s
+                )
+                OR surcharge_id IN (
+                    SELECT id FROM surcharge_ledger WHERE user_id = %s
+                )
+            """, (user_id, user_id))
+            cur.execute("DELETE FROM savings_transactions WHERE user_id = %s", (user_id,))
+            cur.execute("DELETE FROM surcharge_ledger WHERE user_id = %s", (user_id,))
+
+            # loan_repayments belong to this user's own loans only.
+            cur.execute("""
+                DELETE FROM loan_repayments
+                WHERE loan_id IN (SELECT id FROM loans WHERE user_id = %s)
+            """, (user_id,))
+            cur.execute("DELETE FROM loans WHERE user_id = %s", (user_id,))
+
+            cur.execute("DELETE FROM exception_requests WHERE user_id = %s", (user_id,))
+            cur.execute("DELETE FROM commitment_fee_exceptions WHERE user_id = %s", (user_id,))
+            cur.execute("DELETE FROM commitment_fee_status WHERE user_id = %s", (user_id,))
+            cur.execute("DELETE FROM leaderboard WHERE user_id = %s", (user_id,))
+            cur.execute("DELETE FROM matchday_results WHERE user_id = %s", (user_id,))
             cur.execute("DELETE FROM predictions WHERE user_id = %s", (user_id,))
-            cur.execute("DELETE FROM users WHERE username = %s", (username,))
+
+            # --- 2. Scrub this user's identity off OTHER people's records ---
+            # (nullable admin/actor columns -- preserve the row, drop the link)
+            cur.execute("UPDATE commitment_fee_config SET set_by = NULL WHERE set_by = %s", (user_id,))
+            cur.execute("UPDATE commitment_fee_status SET confirmed_by = NULL WHERE confirmed_by = %s", (user_id,))
+            cur.execute("UPDATE commitment_fee_exceptions SET granted_by = NULL WHERE granted_by = %s", (user_id,))
+            cur.execute("UPDATE savings_config SET set_by = NULL WHERE set_by = %s", (user_id,))
+            cur.execute("UPDATE savings_transactions SET confirmed_by = NULL WHERE confirmed_by = %s", (user_id,))
+            cur.execute("UPDATE exception_requests SET decided_by = NULL WHERE decided_by = %s", (user_id,))
+            cur.execute("UPDATE loan_config SET set_by = NULL WHERE set_by = %s", (user_id,))
+            cur.execute("UPDATE loans SET approved_by = NULL WHERE approved_by = %s", (user_id,))
+            cur.execute("UPDATE loans SET disbursed_by = NULL WHERE disbursed_by = %s", (user_id,))
+            cur.execute("UPDATE loans SET rejected_by = NULL WHERE rejected_by = %s", (user_id,))
+            cur.execute("UPDATE loan_repayments SET confirmed_by = NULL WHERE confirmed_by = %s", (user_id,))
+            cur.execute("UPDATE audit_log SET actor_id = NULL WHERE actor_id = %s", (user_id,))
+            cur.execute("UPDATE season_exports SET created_by = NULL WHERE created_by = %s", (user_id,))
+
+            # --- 3. Finally, delete the user row itself ---
+            cur.execute("DELETE FROM users WHERE id = %s", (user_id,))
+
             conn.commit()
             return True
     except Exception as e:
         conn.rollback()
-        print(f"Error deleting user {username}: {e}")
+        print(f"Error {error_prefix} user {username}: {e}")
         return False
 
 
