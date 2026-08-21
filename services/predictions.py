@@ -148,23 +148,24 @@ def submit_matchday_predictions(user_id, predictions):
             if not kickoff or now_utc > kickoff - timedelta(minutes=30):
                 return False, f"Submission closed for fixture {p['fixture_id']}"
 
-        # 🔑 Instead of blocking if user already submitted,
-        # always insert or update predictions.
+        # Upsert: ON CONFLICT makes this atomic, so two concurrent
+        # requests for the same user+fixture (double-click, retry, etc.)
+        # can no longer both pass the "does it exist" check and insert
+        # two rows -- the DB-level unique constraint on (user_id,
+        # fixture_id) is what actually closes that race; this just makes
+        # the normal edit-a-prediction path use it instead of a
+        # SELECT-then-branch that had the same race built in.
         for p in predictions:
             fid, pr = int(p["fixture_id"]), p["predicted_result"]
-            cur.execute("SELECT id FROM predictions WHERE user_id = %s AND fixture_id = %s", (user_id, fid))
-            row = cur.fetchone()
-            if row:
-                pred_id = safe_val(row, 0, "id")
-                cur.execute(
-                    "UPDATE predictions SET predicted_result = %s WHERE id = %s",
-                    (pr, pred_id),
-                )
-            else:
-                cur.execute(
-                    "INSERT INTO predictions (user_id, fixture_id, predicted_result) VALUES (%s,%s,%s)",
-                    (user_id, fid, pr),
-                )
+            cur.execute(
+                """
+                INSERT INTO predictions (user_id, fixture_id, predicted_result)
+                VALUES (%s, %s, %s)
+                ON CONFLICT (user_id, fixture_id)
+                DO UPDATE SET predicted_result = EXCLUDED.predicted_result
+                """,
+                (user_id, fid, pr),
+            )
 
         db.commit()
         return True, None
