@@ -25,13 +25,19 @@ def get_leaderboard():
     # Determine if the competition is in run-in phase (after matchday 30)
     run_in = current_matchday >= 30
 
-    # 2️⃣ Fetch leaderboard data for approved users
+    # 2️⃣ Fetch leaderboard data for approved users. Start from `users`
+    # and LEFT JOIN to `leaderboard`, not the other way around --
+    # `leaderboard` rows only get written once a matchday has been
+    # scored (process_and_evaluate_latest_matchday), so an INNER JOIN
+    # here returned an empty list for the entire pre-season / matchday-0
+    # window, even though every approved user should show up at 0
+    # points. COALESCE covers users with no leaderboard row yet.
     cursor.execute("""
-    SELECT l.points, l.current_matchday, u.username, u.full_name, u.team
-    FROM leaderboard l
-    JOIN users u ON l.user_id = u.id
+    SELECT COALESCE(l.points, 0) AS points, l.current_matchday, u.username, u.full_name, u.team
+    FROM users u
+    LEFT JOIN leaderboard l ON l.user_id = u.id
     WHERE u.is_approved = 1
-    ORDER BY l.points DESC, u.username ASC
+    ORDER BY COALESCE(l.points, 0) DESC, u.username ASC
 """)
 
     rows = cursor.fetchall()
