@@ -62,6 +62,32 @@ def init_db():
         )
     ''')
 
+    # MIGRATION: a missing UNIQUE constraint here let concurrent submits
+    # (double-click, retry, etc.) race past the app-level SELECT-then-
+    # INSERT check and create two prediction rows for the same
+    # user+fixture -- which then got scored and paid out twice. Before
+    # adding the constraint, collapse any duplicates that already exist
+    # (keep the newest row per user+fixture, since that's the one the
+    # user most recently edited).
+    cursor.execute('''
+        DELETE FROM predictions p
+        USING predictions p2
+        WHERE p.user_id = p2.user_id
+          AND p.fixture_id = p2.fixture_id
+          AND p.id < p2.id
+    ''')
+    cursor.execute('''
+        DO $$
+        BEGIN
+            IF NOT EXISTS (
+                SELECT 1 FROM pg_constraint WHERE conname = 'uq_predictions_user_fixture'
+            ) THEN
+                ALTER TABLE predictions
+                ADD CONSTRAINT uq_predictions_user_fixture UNIQUE (user_id, fixture_id);
+            END IF;
+        END $$;
+    ''')
+
     # MATCHDAY TRACKER TABLE
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS matchday_tracker (

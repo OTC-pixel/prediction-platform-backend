@@ -186,15 +186,72 @@ def collect_flexible_matchday_fixtures():
     return try_fetch_fixtures(1, 16)
 
 
+def is_matchday_fully_processed(matchday):
+    """
+    True only once EVERY fixture in this matchday has a stored result AND
+    the resulting points/leaderboard have actually been calculated from
+    them. Fixtures are now scored one at a time as they finish (see
+    collect_results.py's per-fixture incremental path), so "the round is
+    over" can no longer be safely inferred from a fixed number of hours
+    since the last kickoff -- a postponed match, a delayed API response,
+    or a rescheduled fixture could leave results genuinely incomplete
+    well past any fixed timer. This checks the real state instead.
+    """
+    conn = get_db()
+    cursor = conn.cursor()
+
+    cursor.execute(
+        "SELECT COUNT(*) AS total, COUNT(result) AS scored FROM fixtures WHERE matchday = %s",
+        (matchday,),
+    )
+    row = cursor.fetchone()
+    total = row["total"] if row else 0
+    scored = row["scored"] if row else 0
+    if total == 0 or scored < total:
+        return False
+
+    # Sanity check: outcomes/leaderboard should be calculated for
+    # everyone who predicted in this matchday, not just the fixtures
+    # themselves marked as scored.
+    cursor.execute("""
+        SELECT COUNT(DISTINCT p.user_id) AS predictors
+        FROM predictions p
+        JOIN fixtures f ON p.fixture_id = f.fixture_id
+        WHERE f.matchday = %s
+    """, (matchday,))
+    predictors = cursor.fetchone()["predictors"] or 0
+
+    cursor.execute("SELECT COUNT(*) AS done FROM matchday_results WHERE matchday = %s", (matchday,))
+    done = cursor.fetchone()["done"] or 0
+
+    return done >= predictors
+
+
 def auto_update_if_due():
     initialize_matchday_tracker()
-    last_kickoff = get_last_kickoff_time()
 
-    if last_kickoff:
-        now = datetime.now(timezone.utc)
-        if now < last_kickoff + timedelta(hours=14):  
-            remaining = (last_kickoff + timedelta(hours=14)) - now
-            logger.info("%s remaining before fixture update allowed.", remaining)
+    conn = get_db()
+    cursor = conn.cursor()
+    cursor.execute("SELECT current_matchday FROM matchday_tracker WHERE id = 1")
+    row = cursor.fetchone()
+    current_matchday = row["current_matchday"] if row else 0
+
+    # current_matchday == 0 means no matchday has ever been fetched yet
+    # (season bootstrap) -- proceed straight to fetching in that case,
+    # same as before. Otherwise, only advance once the current matchday
+    # is verifiably done: every fixture scored, every predictor's
+    # points/leaderboard entry calculated. This replaces the old
+    # "14 hours since last kickoff" timer, which assumed the whole round
+    # always finished within a fixed window -- true for the old
+    # all-at-once batch flow, not guaranteed under incremental per-
+    # fixture scoring.
+    if current_matchday and current_matchday > 0:
+        if not is_matchday_fully_processed(current_matchday):
+            logger.info(
+                "Matchday %s not fully processed yet (results/leaderboard incomplete) -- "
+                "holding off on fetching the next matchday.",
+                current_matchday,
+            )
             return
 
     logger.info("Attempting to fetch next matchday fixtures...")

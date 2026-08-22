@@ -28,8 +28,8 @@ def _run_fetch_fixtures(app):
 def _run_collect_and_evaluate_results(app):
     with app.app_context():
         try:
-            from services.collect_results import run_once
-            run_once()
+            from services.collect_results import process_pending_results
+            process_pending_results()
         except Exception:
             logger.exception("Results collection job failed")
 

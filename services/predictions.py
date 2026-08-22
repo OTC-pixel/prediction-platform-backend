@@ -131,22 +131,27 @@ def submit_matchday_predictions(user_id, predictions):
         if set(fixture_ids) != required_ids:
             return False, "Must submit ALL fixtures in matchday"
 
-        # check kickoff times: submissions/edits must be before kickoff - 30 minutes
-        kickoff_by_id = {}
+        # Prediction lock: submissions/edits close 1 hour before the
+        # FIRST kickoff of the matchday, for every fixture in it at once
+        # -- not per-fixture. This is intentional and strict: once the
+        # round locks, a fixture kicking off days later is just as
+        # locked as the earliest one. (Previously this checked each
+        # fixture's own kickoff - 30 minutes individually, which let
+        # later fixtures stay editable after the round had already
+        # effectively started.)
+        first_kickoff = None
         for r in all_rows:
-            fid = safe_val(r, 0, "fixture_id")
             k = safe_val(r, 1, "kickoff_time")
             try:
-                kickoff_by_id[int(fid)] = _parse_dt(k)
+                dt = _parse_dt(k)
             except Exception:
-                kickoff_by_id[int(fid)] = None
+                dt = None
+            if dt and (first_kickoff is None or dt < first_kickoff):
+                first_kickoff = dt
 
         now_utc = datetime.now(timezone.utc)
-        for p in predictions:
-            fid = int(p["fixture_id"])
-            kickoff = kickoff_by_id.get(fid)
-            if not kickoff or now_utc > kickoff - timedelta(minutes=30):
-                return False, f"Submission closed for fixture {p['fixture_id']}"
+        if not first_kickoff or now_utc > first_kickoff - timedelta(hours=1):
+            return False, "Predictions are closed for this matchday"
 
         # Upsert: ON CONFLICT makes this atomic, so two concurrent
         # requests for the same user+fixture (double-click, retry, etc.)
@@ -341,6 +346,131 @@ def evaluate_predictions(fixture_id):
             pass
 
 
+def _recompute_matchday_and_leaderboard(matchday):
+    """
+    Recompute matchday_results and leaderboard totals for one matchday.
+
+    Both writes here are full overwrites derived fresh from source data
+    (predictions.points_awarded), not incremental adds -- so calling this
+    twice for the same matchday, or calling it after only one fixture in
+    the matchday has been scored (with the rest still NULL/0), always
+    produces the same correct total. That's what makes it safe to call
+    once per fixture as results trickle in, instead of once per matchday:
+    there's no "add to running total" step that could double-count.
+
+    Shared by the automatic per-fixture path (store_and_evaluate_fixture_result)
+    and the manual admin batch path (process_and_evaluate_latest_matchday) so
+    both stay in sync as one implementation.
+    """
+    db = get_db()
+    cur = db.cursor()
+    try:
+        cur.execute("""
+            SELECT p.user_id, SUM(CASE WHEN p.points_awarded IS NOT NULL THEN p.points_awarded ELSE 0 END) AS total_points
+            FROM predictions p
+            JOIN fixtures f ON p.fixture_id = f.fixture_id
+            WHERE f.matchday = %s
+            GROUP BY p.user_id
+        """, (matchday,))
+        user_points = cur.fetchall()
+
+        for up in user_points:
+            user_id = safe_val(up, 0, "user_id")
+            total_points = safe_val(up, 1, "total_points", 0) or 0
+            cur.execute("""
+                INSERT INTO matchday_results (matchday, user_id, points)
+                VALUES (%s, %s, %s)
+                ON CONFLICT (matchday, user_id) DO UPDATE
+                SET points = EXCLUDED.points
+            """, (matchday, user_id, total_points))
+        db.commit()
+
+        for up in user_points:
+            user_id = safe_val(up, 0, "user_id")
+            cur.execute("SELECT SUM(points) AS total FROM matchday_results WHERE user_id = %s", (user_id,))
+            total_points = safe_val(cur.fetchone(), 0, "total", 0) or 0
+            # GREATEST guards current_matchday from moving backwards: with
+            # postponed/rescheduled fixtures, an earlier matchday can settle
+            # after a later one already has. Without this, whichever
+            # recompute happens to run last would silently drag the
+            # displayed "current matchday" backwards.
+            cur.execute("""
+                INSERT INTO leaderboard (user_id, points, current_matchday, last_updated)
+                VALUES (%s, %s, %s, NOW())
+                ON CONFLICT(user_id) DO UPDATE SET
+                    points = EXCLUDED.points,
+                    current_matchday = GREATEST(leaderboard.current_matchday, EXCLUDED.current_matchday),
+                    last_updated = EXCLUDED.last_updated
+            """, (user_id, total_points, matchday))
+        db.commit()
+        return True
+    except Exception as e:
+        db.rollback()
+        print(f"Error recomputing matchday {matchday}:", e)
+        traceback.print_exc()
+        return False
+    finally:
+        try:
+            cur.close()
+        except Exception:
+            pass
+
+
+def store_and_evaluate_fixture_result(fixture_id, result_str):
+    """
+    Process ONE fixture as soon as its full-time result is available --
+    the per-fixture counterpart to process_and_evaluate_latest_matchday's
+    whole-matchday batch.
+
+    Idempotency/race-safety: the UPDATE below only touches the fixture if
+    its result is still NULL. If two calls ever race for the same fixture
+    (overlapping scheduler runs, a manual admin action landing at the same
+    time), only the first one gets rowcount > 0 and proceeds; the second
+    sees rowcount == 0 and stops immediately -- so a fixture can never be
+    evaluated/scored twice, enforced at the database level rather than by
+    an application-side check-then-act that has a gap in it.
+
+    Returns True if this call is the one that actually processed the
+    fixture, False if it was already done (or the fixture doesn't exist).
+    """
+    db = get_db()
+    cur = db.cursor()
+    try:
+        cur.execute(
+            "UPDATE fixtures SET result = %s WHERE fixture_id = %s AND result IS NULL",
+            (result_str, fixture_id),
+        )
+        claimed = cur.rowcount > 0
+        if not claimed:
+            db.rollback()
+            return False
+
+        cur.execute(
+            "UPDATE predictions SET final_result = %s WHERE fixture_id = %s",
+            (result_str, fixture_id),
+        )
+        cur.execute("SELECT matchday FROM fixtures WHERE fixture_id = %s", (fixture_id,))
+        matchday = safe_val(cur.fetchone(), 0, "matchday")
+        db.commit()
+    except Exception as e:
+        db.rollback()
+        print(f"Error storing result for fixture {fixture_id}:", e)
+        traceback.print_exc()
+        return False
+    finally:
+        try:
+            cur.close()
+        except Exception:
+            pass
+
+    evaluate_predictions(fixture_id)
+
+    if matchday is not None:
+        _recompute_matchday_and_leaderboard(matchday)
+
+    return True
+
+
 def process_and_evaluate_latest_matchday():
     """
     Loads stored results for the latest completed matchday, updates fixtures,
@@ -401,44 +531,12 @@ def process_and_evaluate_latest_matchday():
         print(f"Marked {cancelled_count} matches as cancelled/null.")
         print(f"Evaluated predictions for {evaluated_count} fixtures.")
 
-        # Summarize user points for the matchday
-        cur.execute("""
-            SELECT p.user_id, SUM(CASE WHEN p.points_awarded IS NOT NULL THEN p.points_awarded ELSE 0 END) AS total_points
-            FROM predictions p
-            JOIN fixtures f ON p.fixture_id = f.fixture_id
-            WHERE f.matchday = %s
-            GROUP BY p.user_id
-        """, (matchday,))
-        user_points = cur.fetchall()
-
-        for up in user_points:
-            user_id = safe_val(up, 0, "user_id")
-            total_points = safe_val(up, 1, "total_points", 0) or 0
-            cur.execute("""
-                INSERT INTO matchday_results (matchday, user_id, points)
-                VALUES (%s, %s, %s)
-                ON CONFLICT (matchday, user_id) DO UPDATE
-                SET points = EXCLUDED.points
-            """, (matchday, user_id, total_points))
-
-        db.commit()
-
-        # Update leaderboard totals
-        for up in user_points:
-            user_id = safe_val(up, 0, "user_id")
-            cur.execute("SELECT SUM(points) AS total FROM matchday_results WHERE user_id = %s", (user_id,))
-            total_points = safe_val(cur.fetchone(), 0, "total", 0) or 0
-            cur.execute("""
-                INSERT INTO leaderboard (user_id, points, current_matchday, last_updated)
-                VALUES (%s, %s, %s, NOW())
-                ON CONFLICT(user_id) DO UPDATE SET
-                    points = EXCLUDED.points,
-                    current_matchday = EXCLUDED.current_matchday,
-                    last_updated = EXCLUDED.last_updated
-            """, (user_id, total_points, matchday))
-
-        db.commit()
-        print(f"Leaderboard updated for {len(user_points)} users.")
+        # matchday_results + leaderboard recompute -- shared with the
+        # per-fixture path so both stay in sync (see
+        # _recompute_matchday_and_leaderboard for why this is safe to
+        # call repeatedly / after partial data).
+        if _recompute_matchday_and_leaderboard(matchday):
+            print(f"Leaderboard updated for matchday {matchday}.")
     except Exception as e:
         db.rollback()
         print("Error processing latest matchday:", e)
@@ -564,8 +662,15 @@ def get_previous_matchday_performance(user_id):
         except (ValueError, TypeError):
             return {"matchday": None, "fixtures": [], "total_points": 0, "rank": "N/A"}
 
-        # 1️⃣ Get latest completed matchday from results table
-        cur.execute("SELECT MAX(matchday) AS latest_completed FROM results")
+        # 1️⃣ Get latest completed matchday. Sourced from `fixtures`
+        # (any matchday with at least one scored fixture), matching how
+        # get_latest_completed_user_predictions defines "latest" -- this
+        # used to read MAX(matchday) FROM results, but that table is only
+        # ever written by the whole-matchday batch path, so under
+        # per-fixture incremental processing it would stay stuck showing
+        # "no completed matchday" until an entire round finished, which
+        # defeats the point of scoring fixtures as they finish.
+        cur.execute("SELECT MAX(matchday) AS latest_completed FROM fixtures WHERE result IS NOT NULL")
         latest_completed = safe_val(cur.fetchone(), 0, "latest_completed")
         try:
             latest_completed = int(latest_completed) if latest_completed is not None else None

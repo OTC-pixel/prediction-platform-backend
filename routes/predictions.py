@@ -126,6 +126,24 @@ def process_latest_matchday():
         return jsonify({"error": "Failed to process matchday"}), 500
 
 
+# --- Admin: force-check any fixtures whose result may now be available ---
+# (the per-fixture incremental path -- normally runs hourly via the
+# scheduler; this lets an admin trigger it on demand, e.g. right after
+# watching a match finish, without waiting for the next scheduled run.)
+@predictions_bp.route("/admin/process-pending-results", methods=["POST", "OPTIONS"])
+@role_required("admin")
+def process_pending_results_route():
+    if request.method == "OPTIONS":
+        return jsonify({}), 200
+    try:
+        from services.collect_results import process_pending_results
+        process_pending_results()
+        return jsonify({"message": "Pending results check triggered"}), 200
+    except Exception as e:
+        print("Error in process_pending_results_route:", e)
+        return jsonify({"error": "Failed to process pending results"}), 500
+
+
 # --- Final round results (public standings, read-only) ---
 @predictions_bp.route("/results/final-round", methods=["GET", "OPTIONS"])
 def final_round_results():
