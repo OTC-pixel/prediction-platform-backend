@@ -47,8 +47,8 @@ def start_scheduler(app):
     scheduler = BackgroundScheduler()
     scheduler.add_job(lambda: _run_fetch_fixtures(app), trigger="interval", hours=2)
     scheduler.add_job(lambda: _run_collect_and_evaluate_results(app), trigger="interval", hours=1)
-    scheduler.add_job(lambda: _run_savings_week_rollover(app), trigger="interval", hours=24)
+    scheduler.add_job(lambda: _run_savings_week_rollover(app), trigger="interval", hours=1)
 
     scheduler.start()
-    logger.info("Scheduler started: fixtures every 2h, results+evaluation every 1h, savings rollover every 24h.")
+    logger.info("Scheduler started: fixtures every 2h, results+evaluation every 1h, savings rollover every 1h.")
     atexit.register(lambda: scheduler.shutdown())
