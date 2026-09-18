@@ -148,6 +148,35 @@ def init_db():
         ALTER TABLE users ADD COLUMN IF NOT EXISTS is_secretary INTEGER DEFAULT 0
     ''')
 
+    # MIGRATION: forced password-change flag, set when an admin generates
+    # a one-time password for a user (see password_reset_requests below).
+    # Cleared the moment the user successfully sets their own password.
+    cursor.execute('''
+        ALTER TABLE users ADD COLUMN IF NOT EXISTS must_change_password INTEGER DEFAULT 0
+    ''')
+
+    # ------------------------------------------------------------------
+    # Forgot-password (admin-mediated -- no email/SMTP infra in this app)
+    # ------------------------------------------------------------------
+    # A user submitting "forgot password" creates a pending row here
+    # instead of triggering an email reset link. An admin sees it in
+    # User Management, generates a one-time password out-of-band
+    # (relayed manually, e.g. WhatsApp), and that action resolves the
+    # request. One open request per username at a time is enforced in
+    # the service layer, not here, so duplicate submissions don't pile
+    # up the list.
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS password_reset_requests (
+            id SERIAL PRIMARY KEY,
+            user_id INTEGER NOT NULL REFERENCES users(id),
+            username TEXT NOT NULL,
+            status TEXT NOT NULL DEFAULT 'pending',
+            created_at TIMESTAMP DEFAULT NOW(),
+            resolved_at TIMESTAMP,
+            resolved_by INTEGER REFERENCES users(id)
+        )
+    ''')
+
     # ------------------------------------------------------------------
     # Phase 2 -- commitment fee & prediction eligibility
     # ------------------------------------------------------------------

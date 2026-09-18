@@ -1,6 +1,7 @@
 from flask import Blueprint, request, jsonify
 from services.user import create_user, verify_user
-from utils.token import generate_token
+from services.password_reset import request_password_reset, change_own_password
+from utils.token import generate_token, token_required, current_user_id
 import re
 
 auth_bp = Blueprint('auth', __name__)
@@ -66,10 +67,51 @@ def login():
                     "username": username,
                     "role": "admin" if user.get('is_admin') else "user",
                     "is_treasurer": bool(user.get('is_treasurer')),
-                    "is_secretary": bool(user.get('is_secretary'))
+                    "is_secretary": bool(user.get('is_secretary')),
+                    "must_change_password": bool(user.get('must_change_password')),
                 }
             }), 200
         else:
             return jsonify({"message": "Account pending admin approval"}), 403
     else:
         return jsonify({'message': 'Invalid credentials'}), 401
+
+
+# ✅ FORGOT PASSWORD (public) -- admin-mediated, no email involved.
+# Creates a pending request an admin will see in User Management.
+# Deliberately returns the same response whether or not the username
+# exists, so this endpoint can't be used to enumerate valid usernames.
+@auth_bp.route('/forgot-password', methods=['POST'])
+def forgot_password():
+    data = request.get_json() or {}
+    username = (data.get('username') or '').strip()
+    if not username:
+        return jsonify({'message': 'Username is required'}), 400
+
+    try:
+        request_password_reset(username)
+    except Exception as e:
+        print(f"forgot_password error: {e}")
+        # Still return the generic success message -- don't leak
+        # whether the failure means the username didn't exist or
+        # something actually broke.
+
+    return jsonify({'message': 'If the account exists, an admin has been notified.'}), 200
+
+
+# ✅ CHANGE OWN PASSWORD -- used both for the forced change after an
+# admin-generated one-time password, and for a routine voluntary change.
+# Requires a valid token, i.e. the user must already be logged in
+# (including via the one-time password) before calling this.
+@auth_bp.route('/change-password', methods=['POST'])
+@token_required
+def change_password():
+    data = request.get_json() or {}
+    new_password = data.get('new_password')
+    if not new_password or len(new_password) < 6:
+        return jsonify({'message': 'Password must be at least 6 characters'}), 400
+
+    success = change_own_password(current_user_id(), new_password)
+    if success:
+        return jsonify({'message': 'Password updated'}), 200
+    return jsonify({'message': 'Failed to update password'}), 400

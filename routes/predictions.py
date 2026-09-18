@@ -4,7 +4,8 @@ from services.predictions import (
     get_predictions_by_matchday, update_fixture_result,
     evaluate_predictions, process_and_evaluate_latest_matchday,
     get_final_round_results, get_user_matchday_performance,
-    get_latest_completed_user_predictions, get_previous_matchday_performance
+    get_latest_completed_user_predictions, get_previous_matchday_performance,
+    get_ai_suggested_predictions
 )
 from utils.token import token_required, role_required
 
@@ -86,6 +87,20 @@ def predictions_by_matchday(matchday):
     except Exception as e:
         print("Error in predictions_by_matchday:", e)
         return jsonify({"error": "Failed to fetch predictions"}), 500
+
+
+# --- AI-suggested predictions (fill-only, never submits) ---
+@predictions_bp.route("/ai-suggest-predictions/<int:matchday>", methods=["GET", "OPTIONS"])
+@token_required
+def ai_suggest_predictions(matchday):
+    if request.method == "OPTIONS":
+        return jsonify({}), 200
+    try:
+        suggestions = get_ai_suggested_predictions(matchday)
+        return jsonify({"matchday": matchday, "suggestions": suggestions}), 200
+    except Exception as e:
+        print("Error in ai_suggest_predictions:", e)
+        return jsonify({"error": "Failed to generate suggestions"}), 500
 
 
 # --- Post fixture result & evaluate (admin only) ---
