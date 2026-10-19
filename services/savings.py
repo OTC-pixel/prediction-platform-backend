@@ -474,3 +474,43 @@ def get_surcharge_pool():
             "total_owed": total_owed,
             "owing": breakdown,
         }
+
+
+def record_admin_deduction(user_id, amount, confirmed_by_user_id, idempotency_key):
+    """
+    Records a system-initiated DEBIT against a user's savings balance --
+    currently only used for the commitment-fee-via-savings approval
+    flow (services/treasurer.py's complete_commitment_fee_deduction).
+
+    Inserted as an already-'confirmed' negative transaction rather than
+    a separate ledger concept, so get_user_savings_balance()'s existing
+    SUM(allocated_savings) keeps working completely unchanged -- this
+    app never stores a cached balance, it's always derived, and that
+    stays true for debits too.
+
+    idempotency_key should be caller-supplied and unique per logical
+    deduction (e.g. tied to the approval_requests.id that authorized
+    it), so if this is ever accidentally called twice for the same
+    approval, the UNIQUE constraint on savings_transactions turns the
+    second call into a safe no-op rather than a double deduction.
+    """
+    amount = abs(float(amount))
+    conn = get_db()
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT id FROM savings_transactions WHERE idempotency_key = %s",
+            (idempotency_key,),
+        )
+        if cur.fetchone():
+            return  # already recorded, nothing to do
+
+        cur.execute(
+            """
+            INSERT INTO savings_transactions
+                (user_id, amount, week_start, idempotency_key,
+                 status, confirmed_by, confirmed_at, allocated_savings)
+            VALUES (%s, %s, %s, %s, 'confirmed', %s, NOW(), %s)
+            """,
+            (user_id, -amount, _week_start(), idempotency_key, confirmed_by_user_id, -amount),
+        )
+        conn.commit()

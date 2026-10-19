@@ -1,6 +1,7 @@
 from flask import Blueprint, jsonify
 from services.fixtures import get_current_matchday_fixtures
 from flask_cors import cross_origin
+from utils.errors import server_error
 
 fixtures_bp = Blueprint('fixtures', __name__)
 
@@ -26,6 +27,4 @@ def current_matchday():
         return jsonify(data), 200
         
     except Exception as e:
-        # Log the error for debugging
-        print(f"Error in current_matchday: {str(e)}")
-        return jsonify({'error': 'Internal server error', 'message': str(e)}), 500
+        return server_error(e, "load the current matchday fixtures")

@@ -1,5 +1,6 @@
 from flask import Blueprint, jsonify, request
 from services.leaderboard import get_leaderboard as fetch_leaderboard
+from utils.errors import server_error
 
 leaderboard_bp = Blueprint('leaderboard', __name__, url_prefix="/api/leaderboard")
 
@@ -15,4 +16,4 @@ def leaderboard():
         return jsonify(data), 200
     except Exception as e:
         print("Error fetching leaderboard:", e)
-        return jsonify({"error": "Failed to fetch leaderboard"}), 500
+        return server_error(e, "fetch leaderboard")

@@ -148,6 +148,35 @@ def init_db():
         ALTER TABLE users ADD COLUMN IF NOT EXISTS is_secretary INTEGER DEFAULT 0
     ''')
 
+    # MIGRATION: forced password-change flag, set when an admin generates
+    # a one-time password for a user (see password_reset_requests below).
+    # Cleared the moment the user successfully sets their own password.
+    cursor.execute('''
+        ALTER TABLE users ADD COLUMN IF NOT EXISTS must_change_password INTEGER DEFAULT 0
+    ''')
+
+    # ------------------------------------------------------------------
+    # Forgot-password (admin-mediated -- no email/SMTP infra in this app)
+    # ------------------------------------------------------------------
+    # A user submitting "forgot password" creates a pending row here
+    # instead of triggering an email reset link. An admin sees it in
+    # User Management, generates a one-time password out-of-band
+    # (relayed manually, e.g. WhatsApp), and that action resolves the
+    # request. One open request per username at a time is enforced in
+    # the service layer, not here, so duplicate submissions don't pile
+    # up the list.
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS password_reset_requests (
+            id SERIAL PRIMARY KEY,
+            user_id INTEGER NOT NULL REFERENCES users(id),
+            username TEXT NOT NULL,
+            status TEXT NOT NULL DEFAULT 'pending',
+            created_at TIMESTAMP DEFAULT NOW(),
+            resolved_at TIMESTAMP,
+            resolved_by INTEGER REFERENCES users(id)
+        )
+    ''')
+
     # ------------------------------------------------------------------
     # Phase 2 -- commitment fee & prediction eligibility
     # ------------------------------------------------------------------
@@ -184,6 +213,74 @@ def init_db():
             granted_for_matchday INTEGER NOT NULL,
             granted_by INTEGER REFERENCES users(id),
             granted_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        )
+    ''')
+
+    # ------------------------------------------------------------------
+    # Generic multi-party approval engine.
+    #
+    # Deliberately generic rather than hardcoded to one feature: a
+    # "workflow type" (e.g. commitment-fee-via-savings) is defined once
+    # in services/approvals.py as a short list of {roles: [...]} stages,
+    # and this pair of tables drives ANY such workflow through those
+    # stages without the engine itself knowing what any particular
+    # workflow means. Adding a second multi-party approval flow later
+    # means adding one entry to that dict, not new tables or new
+    # approve/reject routes.
+    #
+    # approval_requests.payload carries whatever the specific workflow
+    # needs (e.g. {user_id, username, amount, note}) -- the engine
+    # never inspects it, only the workflow's own summary/on_complete
+    # functions do.
+    # ------------------------------------------------------------------
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS approval_requests (
+            id SERIAL PRIMARY KEY,
+            request_type TEXT NOT NULL,
+            payload JSONB NOT NULL,
+            requested_by INTEGER REFERENCES users(id),
+            status TEXT NOT NULL DEFAULT 'pending',
+            current_stage INTEGER NOT NULL DEFAULT 0,
+            created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+            resolved_at TIMESTAMPTZ
+        )
+    ''')
+
+    # One row per person's decision at a given stage. UNIQUE(request_id,
+    # stage, role) means a role can act at most once per stage -- this is
+    # what makes "secretary and treasurer, either order" work: the engine
+    # just checks whether every role required by the current stage has a
+    # row here yet, not any particular order.
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS approval_actions (
+            id SERIAL PRIMARY KEY,
+            request_id INTEGER NOT NULL REFERENCES approval_requests(id),
+            stage INTEGER NOT NULL,
+            role TEXT NOT NULL,
+            user_id INTEGER REFERENCES users(id),
+            decision TEXT NOT NULL,
+            created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+            UNIQUE(request_id, stage, role)
+        )
+    ''')
+
+    # Commitment-fee-via-savings: the admin-set "pay what you owe out of
+    # your own savings balance" offer, tied to the currently active
+    # commitment_fee_config. Only ever one active row at a time (same
+    # active-flag pattern as commitment_fee_config/savings_config).
+    # `note` is the admin's own reminder text (e.g. why there's an extra
+    # charge) shown to the user before they confirm -- the app doesn't
+    # compute or enforce that extra charge itself, the admin just sets
+    # one total amount; see services/treasurer.py docstring for why.
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS commitment_fee_deduction_offer (
+            id SERIAL PRIMARY KEY,
+            config_id INTEGER NOT NULL REFERENCES commitment_fee_config(id),
+            amount NUMERIC(12, 2) NOT NULL,
+            note TEXT,
+            set_by INTEGER REFERENCES users(id),
+            created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+            active BOOLEAN NOT NULL DEFAULT TRUE
         )
     ''')
 

@@ -76,3 +76,18 @@ def is_admin():
 
 def current_user_id():
     return getattr(request, "user", {}).get("user_id")
+
+
+def current_roles():
+    """Every role the logged-in caller holds, as the strings the
+    approval engine and inbox use. A person can hold several at once
+    (e.g. a Secretary who is also the Treasurer)."""
+    u = getattr(request, "user", {}) or {}
+    roles = []
+    if u.get("is_admin"):
+        roles.append("admin")
+    if u.get("is_treasurer"):
+        roles.append("treasurer")
+    if u.get("is_secretary"):
+        roles.append("secretary")
+    return roles
