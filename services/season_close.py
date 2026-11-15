@@ -28,6 +28,7 @@ import csv
 import io
 from db import get_db
 from services.audit import log_action
+from services.loans import loan_outstanding as _loan_outstanding
 
 
 def _generate_export_csv(cur):
@@ -95,14 +96,7 @@ def _generate_export_csv(cur):
         loan_status = loan["status"] if loan else "none"
         loan_outstanding = ""
         if loan and loan["status"] == "disbursed":
-            interest = (loan["principal"] * loan["interest_rate"] / 100) if loan["interest_rate"] else 0
-            total_owed = loan["principal"] + interest
-            cur.execute(
-                "SELECT COALESCE(SUM(amount), 0) AS repaid FROM loan_repayments WHERE loan_id = %s AND status = 'confirmed'",
-                (loan["id"],),
-            )
-            repaid = cur.fetchone()["repaid"]
-            loan_outstanding = total_owed - repaid
+            loan_outstanding = _loan_outstanding(cur, loan)
 
         lb = leaderboard_by_user.get(u["id"])
 
@@ -160,6 +154,8 @@ def close_season(triggered_by_user_id):
             cur.execute("DELETE FROM surcharge_ledger")
             cur.execute("DELETE FROM savings_transactions")
             cur.execute("DELETE FROM exception_requests")
+            cur.execute("DELETE FROM loan_topups")
+            cur.execute("DELETE FROM loan_charges")
             cur.execute("DELETE FROM loan_repayments")
             cur.execute("DELETE FROM loan_endorsements")
             cur.execute("DELETE FROM loans")

@@ -4,9 +4,12 @@ from services.predictions import (
     get_predictions_by_matchday, update_fixture_result,
     evaluate_predictions, process_and_evaluate_latest_matchday,
     get_final_round_results, get_user_matchday_performance,
-    get_latest_completed_user_predictions, get_previous_matchday_performance
+    get_latest_completed_user_predictions, get_previous_matchday_performance,
+    get_ai_suggested_predictions
 )
 from utils.token import token_required, role_required
+from utils.errors import server_error
+from services.treasurer import get_user_eligibility
 
 predictions_bp = Blueprint("predictions", __name__)
 
@@ -54,7 +57,7 @@ def submit_predictions():
         return jsonify({"message": msg or "Submission failed"}), 400
     except Exception as e:
         print("Server error in submit_predictions:", e)
-        return jsonify({"message": f"Server error: {str(e)}"}), 500
+        return server_error(e, "complete the request")
 
 
 # --- Get user's predictions ---
@@ -71,7 +74,7 @@ def user_predictions(user_id):
         return jsonify(result), 200
     except Exception as e:
         print("Error in user_predictions:", e)
-        return jsonify({"error": "Failed to fetch predictions"}), 500
+        return server_error(e, "fetch predictions")
 
 
 # --- Get predictions by matchday (admin-only: exposes everyone's picks) ---
@@ -85,7 +88,26 @@ def predictions_by_matchday(matchday):
         return jsonify(result), 200
     except Exception as e:
         print("Error in predictions_by_matchday:", e)
-        return jsonify({"error": "Failed to fetch predictions"}), 500
+        return server_error(e, "fetch predictions")
+
+
+# --- AI-suggested predictions (fill-only, never submits) ---
+@predictions_bp.route("/ai-suggest-predictions/<int:matchday>", methods=["GET", "OPTIONS"])
+@token_required
+def ai_suggest_predictions(matchday):
+    if request.method == "OPTIONS":
+        return jsonify({}), 200
+    try:
+        # Same gate as submitting: a member locked for an unpaid commitment fee
+        # can't use anything prediction-related, suggestions included.
+        eligibility = get_user_eligibility(request.user.get('user_id'))
+        if not eligibility['eligible']:
+            return jsonify({"message": eligibility['reason'], "suggestions": []}), 403
+        suggestions = get_ai_suggested_predictions(matchday)
+        return jsonify({"matchday": matchday, "suggestions": suggestions}), 200
+    except Exception as e:
+        print("Error in ai_suggest_predictions:", e)
+        return server_error(e, "generate suggestions")
 
 
 # --- Post fixture result & evaluate (admin only) ---
@@ -109,7 +131,7 @@ def post_result():
         return jsonify({"message": "Failed to post result"}), 400
     except Exception as e:
         print("Error in post_result:", e)
-        return jsonify({"error": "Failed to post result"}), 500
+        return server_error(e, "post result")
 
 
 # --- Admin: process latest matchday ---
@@ -123,7 +145,7 @@ def process_latest_matchday():
         return jsonify({"message": "Processing triggered"}), 200
     except Exception as e:
         print("Error in process_latest_matchday:", e)
-        return jsonify({"error": "Failed to process matchday"}), 500
+        return server_error(e, "process matchday")
 
 
 # --- Admin: force-check any fixtures whose result may now be available ---
@@ -141,7 +163,7 @@ def process_pending_results_route():
         return jsonify({"message": "Pending results check triggered"}), 200
     except Exception as e:
         print("Error in process_pending_results_route:", e)
-        return jsonify({"error": "Failed to process pending results"}), 500
+        return server_error(e, "process pending results")
 
 
 # --- Final round results (public standings, read-only) ---
@@ -154,7 +176,7 @@ def final_round_results():
         return jsonify(result), 200
     except Exception as e:
         print("Error in final_round_results:", e)
-        return jsonify({"error": "Failed to fetch results"}), 500
+        return server_error(e, "fetch results")
 
 
 # --- User performance by matchday ---
@@ -171,7 +193,7 @@ def user_matchday_performance(user_id, matchday):
         return jsonify(result), 200
     except Exception as e:
         print("Error in user_matchday_performance:", e)
-        return jsonify({"error": "Failed to fetch performance"}), 500
+        return server_error(e, "fetch performance")
 
 
 # --- Latest completed matchday predictions ---
@@ -188,7 +210,7 @@ def latest_matchday_predictions(user_id):
         return jsonify(result), 200
     except Exception as e:
         print("Error in latest_matchday_predictions:", e)
-        return jsonify({"error": "Failed to fetch latest predictions"}), 500
+        return server_error(e, "fetch latest predictions")
 
 
 # --- Previous matchday performance ---
@@ -210,4 +232,4 @@ def previous_matchday():
         return jsonify(result or {}), 200
     except Exception as e:
         print("Error in previous_matchday:", e)
-        return jsonify({"error": "Failed to fetch previous matchday performance"}), 500
+        return server_error(e, "fetch previous matchday performance")

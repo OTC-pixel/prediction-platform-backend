@@ -69,6 +69,31 @@ def get_latest_completed_matchday():
             pass
 
 
+def _is_matchday_locked(cur, matchday):
+    """
+    Shared lock check: predictions close 1 hour before the FIRST kickoff
+    of the matchday, for every fixture in it at once. Used by both the
+    submit path and the AI-suggest path so they can never disagree about
+    whether a matchday is open -- previously this logic lived only inline
+    inside submit_matchday_predictions.
+    """
+    cur.execute("SELECT kickoff_time FROM fixtures WHERE matchday = %s", (matchday,))
+    rows = cur.fetchall()
+
+    first_kickoff = None
+    for r in rows:
+        k = safe_val(r, 0, "kickoff_time")
+        try:
+            dt = _parse_dt(k)
+        except Exception:
+            dt = None
+        if dt and (first_kickoff is None or dt < first_kickoff):
+            first_kickoff = dt
+
+    now_utc = datetime.now(timezone.utc)
+    return (not first_kickoff) or (now_utc > first_kickoff - timedelta(hours=1))
+
+
 def submit_matchday_predictions(user_id, predictions):
     """
     predictions: list of {"fixture_id": <int|str>, "predicted_result": "x-y"}
@@ -139,18 +164,7 @@ def submit_matchday_predictions(user_id, predictions):
         # fixture's own kickoff - 30 minutes individually, which let
         # later fixtures stay editable after the round had already
         # effectively started.)
-        first_kickoff = None
-        for r in all_rows:
-            k = safe_val(r, 1, "kickoff_time")
-            try:
-                dt = _parse_dt(k)
-            except Exception:
-                dt = None
-            if dt and (first_kickoff is None or dt < first_kickoff):
-                first_kickoff = dt
-
-        now_utc = datetime.now(timezone.utc)
-        if not first_kickoff or now_utc > first_kickoff - timedelta(hours=1):
+        if _is_matchday_locked(cur, matchday):
             return False, "Predictions are closed for this matchday"
 
         # Upsert: ON CONFLICT makes this atomic, so two concurrent
@@ -770,6 +784,130 @@ def get_latest_completed_user_predictions(user_id):
             return []
 
         return get_user_matchday_performance(user_id, latest)
+    finally:
+        try:
+            cur.close()
+        except Exception:
+            pass
+
+
+def _team_recent_goal_rates(cur, team, is_home, n=5):
+    """
+    Average goals scored/conceded by `team` over their last `n` completed
+    fixtures in that venue (home games only if is_home, else away games
+    only) -- venue-specific splits are more informative than mixing home
+    and away form together. Falls back to a league-average-ish 1.2 if the
+    team has no scored history yet (new team / early season), so the
+    Poisson draw below still produces a sane, non-zero scoreline instead
+    of always predicting 0-0.
+    """
+    col = "home_team" if is_home else "away_team"
+    cur.execute(f"""
+        SELECT result FROM fixtures
+        WHERE {col} = %s AND result IS NOT NULL
+        ORDER BY kickoff_time DESC
+        LIMIT %s
+    """, (team, n))
+    rows = cur.fetchall()
+
+    scored, conceded, count = 0, 0, 0
+    for r in rows:
+        result = safe_val(r, 0, "result")
+        try:
+            h, a = map(int, str(result).split("-"))
+        except Exception:
+            continue
+        gf, ga = (h, a) if is_home else (a, h)
+        scored += gf
+        conceded += ga
+        count += 1
+
+    if count == 0:
+        return 1.2, 1.2
+    return scored / count, conceded / count
+
+
+def _poisson_sample(lam, max_goals=8):
+    """
+    Draw a single sample from Poisson(lam) via inverse CDF, capped at
+    max_goals so a freak long tail can't produce an absurd scoreline like
+    11-0. No external dependency (e.g. numpy) needed for one draw.
+    """
+    import random
+    import math
+    lam = max(lam, 0.05)
+    l = math.exp(-lam)
+    k, p = 0, 1.0
+    while True:
+        k += 1
+        p *= random.random()
+        if p <= l or k > max_goals:
+            break
+    return min(k - 1, max_goals)
+
+
+def get_ai_suggested_predictions(matchday):
+    """
+    Generate a fresh, randomized scoreline suggestion for every fixture in
+    `matchday`, for the AI-suggest button on the predictions page.
+
+    Each team's expected goals (lambda) for this fixture is estimated from
+    their last 5 completed results *in that venue* (home form for the home
+    team, away form for the away team), blending their own scoring rate
+    with their opponent's conceding rate -- a standard simple approach to
+    expected-goals estimation. The actual suggested scoreline is then a
+    random Poisson draw around that expectation rather than the raw
+    average itself, so different users (and repeated clicks) get varied,
+    still-plausible suggestions instead of an identical deterministic grid
+    for everyone. Nothing here is stored -- it's computed fresh per call
+    and is never written to the predictions table; the frontend just
+    pre-fills the form fields with it.
+    """
+    db = get_db()
+    cur = db.cursor()
+    try:
+        # If the matchday's already locked, don't bother generating
+        # suggestions -- the frontend hides the button by then anyway,
+        # this is just defense-in-depth against someone calling the
+        # endpoint directly after close.
+        if _is_matchday_locked(cur, matchday):
+            return []
+
+        cur.execute("""
+            SELECT fixture_id, home_team, away_team
+            FROM fixtures
+            WHERE matchday = %s
+            ORDER BY kickoff_time
+        """, (matchday,))
+        fixtures = cur.fetchall()
+
+        suggestions = []
+        for f in fixtures:
+            fixture_id = safe_val(f, 0, "fixture_id")
+            home_team = safe_val(f, 1, "home_team")
+            away_team = safe_val(f, 2, "away_team")
+
+            home_scored, home_conceded = _team_recent_goal_rates(cur, home_team, is_home=True)
+            away_scored, away_conceded = _team_recent_goal_rates(cur, away_team, is_home=False)
+
+            # Blend each side's own attacking rate with the opponent's
+            # defensive weakness -- e.g. a strong-scoring home team facing
+            # a leaky away defense should have a higher lambda than either
+            # figure alone would suggest.
+            lambda_home = (home_scored + away_conceded) / 2
+            lambda_away = (away_scored + home_conceded) / 2
+
+            home_goals = _poisson_sample(lambda_home)
+            away_goals = _poisson_sample(lambda_away)
+
+            suggestions.append({
+                "fixture_id": fixture_id,
+                "home_team": home_team,
+                "away_team": away_team,
+                "suggested_result": f"{home_goals}-{away_goals}",
+            })
+
+        return suggestions
     finally:
         try:
             cur.close()

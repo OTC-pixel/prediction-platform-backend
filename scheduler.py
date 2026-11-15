@@ -12,6 +12,7 @@ share the same connection pool and config as the rest of the app.
 from apscheduler.schedulers.background import BackgroundScheduler
 import atexit
 import logging
+from datetime import datetime, timezone
 
 logger = logging.getLogger(__name__)
 
@@ -43,12 +44,26 @@ def _run_savings_week_rollover(app):
             logger.exception("Savings week-rollover job failed")
 
 
+def _run_loan_overdue(app):
+    with app.app_context():
+        try:
+            from services.loans import process_overdue_loans
+            process_overdue_loans()
+        except Exception:
+            logger.exception("Loan late-fee job failed")
+
+
 def start_scheduler(app):
     scheduler = BackgroundScheduler()
     scheduler.add_job(lambda: _run_fetch_fixtures(app), trigger="interval", hours=2)
     scheduler.add_job(lambda: _run_collect_and_evaluate_results(app), trigger="interval", hours=1)
     scheduler.add_job(lambda: _run_savings_week_rollover(app), trigger="interval", hours=1)
 
+    # Late fees: hourly, and once right at startup so a server that was
+    # asleep over a due date catches up immediately.
+    scheduler.add_job(lambda: _run_loan_overdue(app), trigger="interval", hours=1,
+                      next_run_time=datetime.now(timezone.utc))
+
     scheduler.start()
-    logger.info("Scheduler started: fixtures every 2h, results+evaluation every 1h, savings rollover every 1h.")
+    logger.info("Scheduler started: fixtures every 2h, results+evaluation every 1h, savings rollover every 1h, loan late fees every 1h.")
     atexit.register(lambda: scheduler.shutdown())

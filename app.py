@@ -3,6 +3,7 @@ import sys
 import logging
 from flask import Flask, request, jsonify
 from flask_cors import CORS
+from werkzeug.exceptions import HTTPException
 from dotenv import load_dotenv
 
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
@@ -17,7 +18,10 @@ from routes.treasurer import treasurer_bp
 from routes.savings import savings_bp
 from routes.loans import loans_bp
 from routes.season import season_bp
+from routes.approvals import approvals_bp
+from routes.inbox import inbox_bp
 from db import close_db
+from utils.errors import server_error
 from scheduler import start_scheduler
 
 load_dotenv()
@@ -96,6 +100,8 @@ app.register_blueprint(treasurer_bp, url_prefix="/api/treasurer")
 app.register_blueprint(savings_bp, url_prefix="/api/savings")
 app.register_blueprint(loans_bp, url_prefix="/api/loans")
 app.register_blueprint(season_bp, url_prefix="/api/season")
+app.register_blueprint(approvals_bp, url_prefix="/api/approvals")
+app.register_blueprint(inbox_bp, url_prefix="/api/inbox")
 
 # ------------------------------
 # Scheduler -- jobs run in-process inside an app context (see scheduler.py)
@@ -103,15 +109,32 @@ app.register_blueprint(season_bp, url_prefix="/api/season")
 start_scheduler(app)
 
 
-@app.errorhandler(404)
-def not_found(error):
-    logger.warning("404: %s %s", request.method, request.path)
-    return jsonify({"error": "Endpoint not found", "status": 404}), 404
+# Safety net: ANY error that escapes a route comes back as JSON with a
+# `message` the frontend can show. Previously 404/500 used the key
+# "error", which the frontend never read, and anything unhandled could
+# fall through to Flask's HTML error page -- which the browser can't
+# parse, so users just saw a vague failure.
+_HTTP_MESSAGES = {
+    400: "The request was malformed.",
+    401: "Please log in again.",
+    403: "You don't have permission to do that.",
+    404: "That endpoint doesn't exist.",
+    405: "That action isn't allowed here.",
+    413: "That upload is too large.",
+    429: "Too many requests. Wait a minute and try again.",
+}
 
 
-@app.errorhandler(500)
-def internal_error(error):
-    return jsonify({"error": "Internal server error", "status": 500}), 500
+@app.errorhandler(Exception)
+def handle_any_error(exc):
+    if isinstance(exc, HTTPException):
+        code = exc.code or 500
+        if code == 404:
+            logger.warning("404: %s %s", request.method, request.path)
+        if code < 500:
+            message = _HTTP_MESSAGES.get(code, exc.description or "The request couldn't be completed.")
+            return jsonify({"message": message, "status": code}), code
+    return server_error(exc, f"handle {request.method} {request.path}")
 
 
 @app.teardown_appcontext

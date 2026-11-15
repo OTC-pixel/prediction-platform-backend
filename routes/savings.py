@@ -5,6 +5,7 @@ from services.savings import (
     process_week_rollover, get_user_ledger, get_surcharge_pool,
     get_total_savings_balance, get_members_savings_overview
 )
+from services.loans import get_loan_cash_summary, get_members_loan_overview
 from utils.token import token_required, role_required
 
 savings_bp = Blueprint('savings', __name__)
@@ -120,6 +121,7 @@ def get_pool():
 @role_required('admin', 'treasurer', 'secretary')
 def get_members_overview():
     rows = get_members_savings_overview()
+    loans = get_members_loan_overview()
     return jsonify([
         {
             'user_id': r['user_id'],
@@ -127,6 +129,8 @@ def get_members_overview():
             'full_name': r['full_name'],
             'savings_balance': str(r['savings_balance']),
             'surcharge_owed': str(r['surcharge_owed']),
+            'loan_outstanding': str(loans[r['user_id']]['outstanding']) if r['user_id'] in loans else None,
+            'loan_days_overdue': loans[r['user_id']]['days_overdue'] if r['user_id'] in loans else 0,
         }
         for r in rows
     ]), 200
@@ -144,9 +148,22 @@ def get_member_ledger(user_id):
 def get_wallet_summary():
     total_savings = get_total_savings_balance()
     pool = get_surcharge_pool()
+    loans = get_loan_cash_summary()
+    expected_in_account = (
+        total_savings + pool['total_collected'] - loans['paid_out'] + loans['payments_received']
+    )
     return jsonify({
         'total_savings_balance': str(total_savings),
         'surcharge_total_collected': str(pool['total_collected']),
         'surcharge_total_owed': str(pool['total_owed']),
         'surcharge_total_expected': str(pool['total_charged']),
+        'loans': {
+            'paid_out': str(loans['paid_out']),
+            'payments_received': str(loans['payments_received']),
+            'outstanding': str(loans['outstanding']),
+            'overdue_amount': str(loans['overdue_amount']),
+            'overdue_count': loans['overdue_count'],
+            'active_count': loans['active_count'],
+        },
+        'expected_in_account': str(expected_in_account),
     }), 200

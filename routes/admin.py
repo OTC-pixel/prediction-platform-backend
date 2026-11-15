@@ -5,6 +5,7 @@ from services.admin import (
     delete_user, update_fixture_result
 )
 from services.treasurer import set_treasurer, set_secretary
+from services.password_reset import get_pending_password_reset_requests, admin_reset_password
 from services.audit import log_action
 from utils.token import role_required
 from dateutil import parser
@@ -45,6 +46,23 @@ def reject(username):
         log_action(request.user.get('user_id'), 'reject_user', 'user', clean_username)
         return jsonify({'message': f'{clean_username} rejected'}), 200
     return jsonify({'message': 'Rejection failed'}), 400
+
+
+@admin_bp.route('/password-reset-requests', methods=['GET'])
+@role_required('admin')
+def password_reset_requests():
+    return jsonify(get_pending_password_reset_requests()), 200
+
+
+@admin_bp.route('/reset-password/<username>', methods=['POST'])
+@role_required('admin')
+def reset_password(username):
+    clean_username = username.strip()
+    temp_password = admin_reset_password(clean_username, request.user.get('user_id'))
+    if temp_password:
+        log_action(request.user.get('user_id'), 'reset_password', 'user', clean_username)
+        return jsonify({'message': f'Password reset for {clean_username}', 'temp_password': temp_password}), 200
+    return jsonify({'message': 'User not found'}), 404
 
 
 @admin_bp.route('/fixtures', methods=['POST'])

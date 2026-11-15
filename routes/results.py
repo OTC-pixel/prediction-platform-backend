@@ -1,6 +1,7 @@
 from flask import Blueprint, jsonify, request
 from db import get_db
 import psycopg2.extras
+from utils.errors import server_error
 
 results_bp = Blueprint('results', __name__)
 
@@ -34,5 +35,4 @@ def final_round_results():
                 return jsonify(rows), 200
 
     except Exception as e:
-        print("Error fetching final round results:", e)
-        return jsonify({"error": f"Failed to fetch results: {str(e)}"}), 500
+        return server_error(e, "fetch the final round results")
